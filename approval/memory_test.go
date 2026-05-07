@@ -77,6 +77,62 @@ func TestMemoryWriterEmptyURL(t *testing.T) {
 	mw.WriteDecision(&PendingApproval{}, Resolution{})
 }
 
+func TestMemoryWriterStatsNilSafe(t *testing.T) {
+	var mw *MemoryWriter
+	stats := mw.Stats()
+	if stats.Attempted != 0 || stats.Succeeded != 0 || stats.Failed != 0 {
+		t.Fatalf("expected zero stats on nil writer, got %+v", stats)
+	}
+}
+
+func TestMemoryWriterStatsSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer srv.Close()
+
+	mw := NewMemoryWriter(srv.URL, "")
+	pa := &PendingApproval{ID: "1", AgentID: "claude", Tool: "fs.read"}
+	res := Resolution{Status: StatusApproved, ResolvedBy: "user:marc"}
+
+	mw.WriteDecision(pa, res)
+	mw.WriteDecision(pa, res)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s := mw.Stats()
+		if s.Attempted == 2 && s.Succeeded == 2 && s.Failed == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("stats did not converge: %+v", mw.Stats())
+}
+
+func TestMemoryWriterStatsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	mw := NewMemoryWriter(srv.URL, "")
+	pa := &PendingApproval{ID: "1", AgentID: "claude", Tool: "fs.read"}
+	res := Resolution{Status: StatusApproved, ResolvedBy: "user:marc"}
+
+	mw.WriteDecision(pa, res)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s := mw.Stats()
+		if s.Attempted == 1 && s.Succeeded == 0 && s.Failed == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("stats did not converge: %+v", mw.Stats())
+}
+
 func TestMemoryWriterDeniedDecision(t *testing.T) {
 	received := make(chan map[string]any, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -109,6 +109,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleHealth(w, r)
 	case r.Method == "GET" && r.URL.Path == "/version":
 		h.handleVersion(w, r)
+	case r.Method == "GET" && r.URL.Path == "/metrics":
+		h.handleMetrics(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -527,6 +529,34 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"traces":  h.Traces.Stats(),
 		"version": h.Version,
 	})
+}
+
+// handleMetrics exposes operational counters in Prometheus exposition format.
+//
+// Currently published:
+//   - agent_mesh_mem7_writes_attempted_total
+//   - agent_mesh_mem7_writes_succeeded_total
+//   - agent_mesh_mem7_writes_failed_total
+//
+// When mem7 is not configured the counters stay at zero — the endpoint is
+// always served, so a scraper can detect a misconfiguration (attempts > 0,
+// failed == attempts) without special-casing the disabled state.
+func (h *Handler) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	var stats approval.MemoryWriterStats
+	if h.Approvals != nil {
+		stats = h.Approvals.MemoryWriter.Stats()
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	fmt.Fprintf(w, "# HELP agent_mesh_mem7_writes_attempted_total Total mem7 decision write attempts.\n")
+	fmt.Fprintf(w, "# TYPE agent_mesh_mem7_writes_attempted_total counter\n")
+	fmt.Fprintf(w, "agent_mesh_mem7_writes_attempted_total %d\n", stats.Attempted)
+	fmt.Fprintf(w, "# HELP agent_mesh_mem7_writes_succeeded_total Successful mem7 decision writes (HTTP 2xx/3xx).\n")
+	fmt.Fprintf(w, "# TYPE agent_mesh_mem7_writes_succeeded_total counter\n")
+	fmt.Fprintf(w, "agent_mesh_mem7_writes_succeeded_total %d\n", stats.Succeeded)
+	fmt.Fprintf(w, "# HELP agent_mesh_mem7_writes_failed_total Failed mem7 decision writes (marshal, transport, or HTTP >= 400).\n")
+	fmt.Fprintf(w, "# TYPE agent_mesh_mem7_writes_failed_total counter\n")
+	fmt.Fprintf(w, "agent_mesh_mem7_writes_failed_total %d\n", stats.Failed)
 }
 
 // handleVersion returns the build info injected at compile time via ldflags.
