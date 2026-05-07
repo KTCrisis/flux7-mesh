@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,7 +163,7 @@ func TestMemoryWriterDeniedDecision(t *testing.T) {
 		params := payload["params"].(map[string]any)
 		args := params["arguments"].(map[string]any)
 		value := args["value"].(string)
-		if value == "" || value[0:8] != "rejected" {
+		if !strings.HasPrefix(value, "rejected") {
 			t.Fatalf("expected value to start with 'rejected', got %q", value)
 		}
 	case <-time.After(2 * time.Second):

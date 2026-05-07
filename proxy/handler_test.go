@@ -1079,3 +1079,36 @@ func TestSessionEndpoints(t *testing.T) {
 		t.Fatalf("events for sess-1 = %d, want 2", len(events))
 	}
 }
+
+func TestHandleMetrics(t *testing.T) {
+	reg := registry.New()
+	pol := policy.NewEngine(nil)
+	handler := NewHandler(reg, pol, trace.NewStore(100))
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/plain") {
+		t.Fatalf("Content-Type = %q, want text/plain", ct)
+	}
+
+	body := w.Body.String()
+	for _, metric := range []string{
+		"agent_mesh_mem7_writes_attempted_total",
+		"agent_mesh_mem7_writes_succeeded_total",
+		"agent_mesh_mem7_writes_failed_total",
+	} {
+		if !strings.Contains(body, metric) {
+			t.Errorf("missing metric %q in response", metric)
+		}
+	}
+	if !strings.Contains(body, "# HELP") || !strings.Contains(body, "# TYPE") {
+		t.Error("missing Prometheus HELP/TYPE annotations")
+	}
+}
