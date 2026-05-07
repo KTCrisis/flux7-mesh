@@ -301,6 +301,18 @@ supervisor:
 
 When enabled, `approval.resolve` and `approval.pending` are hidden from agents — only an external supervisor can resolve approvals. See [docs/supervisor-protocol.md](docs/supervisor-protocol.md).
 
+### Memory integration
+
+Persist approval decisions as queryable facts in [mem7](https://github.com/KTCrisis/mem7). Fire-and-forget — a failing mem7 never blocks approvals.
+
+```yaml
+memory:
+  url: http://localhost:9070    # mem7 daemon URL
+  token: ""                     # optional Bearer token
+```
+
+When configured, every approval resolve (approve, deny, timeout) is written to mem7 as a fact with tags `[decision, approved|denied, <tool>, agent:<id>]`. This enables the supervisor to check past decisions before escalating to a human.
+
 ### Other settings
 
 ```yaml
@@ -473,7 +485,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-207 tests across 13 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
+211 tests across 13 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
 
 ## Roadmap
 
@@ -489,6 +501,7 @@ go test ./... -race        # with race detector
 - [x] CLI tool governance (3 modes, secure exec)
 - [x] OpenAPI config field (persistent import)
 - [x] Dashboard UI (via [agent7](https://github.com/KTCrisis/agent7))
+- [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/mem7) as queryable facts)
 - [ ] Durable state (approvals, grants, rate limits persisted across restarts)
 - [ ] `agent-mesh serve` daemon mode (persistent, multi-client)
 - [ ] Operator auth (separate identity from agent Bearer)
