@@ -17,11 +17,18 @@ type Config struct {
 	OTELEndpoint string            `yaml:"otel_endpoint"` // "stdout" or "http://localhost:4318" (OTLP HTTP)
 	Approval     ApprovalConfig    `yaml:"approval"`
 	Supervisor   SupervisorConfig  `yaml:"supervisor"`
+	Memory       MemoryConfig      `yaml:"memory"`
 	Policies     []Policy          `yaml:"policies"`
 	PolicyDir    string            `yaml:"policy_dir,omitempty"` // directory of per-agent policy files
 	MCPServers   []MCPServerConfig `yaml:"mcp_servers"`
 	CLITools     []CLIToolConfig   `yaml:"cli_tools"`
 	OpenAPIs     []OpenAPIConfig   `yaml:"openapi,omitempty"`
+}
+
+// MemoryConfig declares an optional mem7 server for persisting decisions.
+type MemoryConfig struct {
+	URL   string `yaml:"url"`   // e.g. "http://localhost:9070"
+	Token string `yaml:"token"` // optional bearer token
 }
 
 // OpenAPIConfig declares an OpenAPI spec to import as governed tools.

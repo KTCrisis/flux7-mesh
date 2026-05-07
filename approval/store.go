@@ -64,10 +64,11 @@ func (p *PendingApproval) Remaining(timeout time.Duration) time.Duration {
 
 // Store manages pending approvals with channel-based blocking.
 type Store struct {
-	mu       sync.RWMutex
-	pending  map[string]*PendingApproval
-	timeout  time.Duration
-	Notifier *Notifier
+	mu           sync.RWMutex
+	pending      map[string]*PendingApproval
+	timeout      time.Duration
+	Notifier     *Notifier
+	MemoryWriter *MemoryWriter
 }
 
 // NewStore creates an approval store with the given default timeout.
@@ -127,6 +128,7 @@ func (s *Store) Submit(agentID, tool, policyRule string, params map[string]any, 
 		pa.Result <- res
 		// Callback agent on timeout too
 		s.Notifier.OnResolve(pa, res)
+		s.MemoryWriter.WriteDecision(pa, res)
 	}()
 
 	return pa
@@ -168,6 +170,8 @@ func (s *Store) Resolve(id string, status Status, opts ResolveOpts) error {
 	pa.Result <- res
 	// Callback agent (if X-Callback-URL was set)
 	s.Notifier.OnResolve(pa, res)
+	// Persist decision to mem7 (if configured)
+	s.MemoryWriter.WriteDecision(pa, res)
 	return nil
 }
 

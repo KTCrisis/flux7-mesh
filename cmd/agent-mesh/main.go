@@ -137,6 +137,10 @@ func main() {
 	if cfg.Approval.NotifyURL != "" {
 		slog.Info("approval notify webhook configured", "url", cfg.Approval.NotifyURL)
 	}
+	if cfg.Memory.URL != "" {
+		approvals.MemoryWriter = approval.NewMemoryWriter(cfg.Memory.URL, cfg.Memory.Token)
+		slog.Info("memory writer configured — decisions will be persisted", "url", cfg.Memory.URL)
+	}
 	slog.Info("approval store ready", "timeout", approvalTimeout)
 	if cfg.Supervisor.IsEnabled() {
 		slog.Info("supervisor mode enabled — approval.resolve hidden from agents")
