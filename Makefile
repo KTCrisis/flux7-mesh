@@ -2,15 +2,15 @@ VERSION  ?= $(shell git describe --tags --always)
 COMMIT   ?= $(shell git rev-parse --short HEAD)
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS  := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
-BIN      := $(HOME)/go/bin/agent-mesh
+BIN      := $(HOME)/go/bin/flux7-mesh
 
 .PHONY: build install test lint clean release-dry
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o agent-mesh ./cmd/agent-mesh
+	go build -ldflags "$(LDFLAGS)" -o flux7-mesh ./cmd/flux7-mesh
 
 install:
-	go build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/agent-mesh
+	go build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/flux7-mesh
 	@echo "installed $(BIN)"
 
 test:
@@ -21,7 +21,7 @@ lint:
 	golangci-lint run ./...
 
 clean:
-	rm -f agent-mesh
+	rm -f flux7-mesh
 	go clean -cache
 
 release-dry:

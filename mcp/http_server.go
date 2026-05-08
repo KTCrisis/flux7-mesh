@@ -172,7 +172,7 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 }
 
 // extractAgentID reads the agent identity from the Authorization header.
-// Supports "Bearer agent:<id>" (agent-mesh convention) and plain "Bearer <token>".
+// Supports "Bearer agent:<id>" (mesh7 convention) and plain "Bearer <token>".
 func extractAgentID(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {

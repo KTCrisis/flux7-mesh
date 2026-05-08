@@ -1,5 +1,5 @@
 {
-  "name": "agent-mesh",
+  "name": "flux7-mesh",
   "version": "0.1.0",
   "description": "Agent sidecar proxy — policy enforcement, tracing, and approval for AI agents"
 }

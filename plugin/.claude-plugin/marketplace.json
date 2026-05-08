@@ -1,5 +1,5 @@
 {
-  "name": "agent-mesh-plugins",
+  "name": "flux7-mesh-plugins",
   "owner": {
     "name": "Marc Verchiani",
     "email": "flux7art@gmail.com"
@@ -10,7 +10,7 @@
   },
   "plugins": [
     {
-      "name": "agent-mesh",
+      "name": "flux7-mesh",
       "source": "./",
       "description": "Sidecar proxy with policy enforcement, tracing, and approval for AI agents",
       "version": "0.1.0",

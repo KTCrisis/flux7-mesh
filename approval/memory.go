@@ -217,10 +217,10 @@ func countDecisions(text string) (approved, rejected int) {
 
 // WriteDecision stores an approval decision as a fact in mem7.
 //
-// Provenance convention: agent-mesh is recorded as the writer of the fact
+// Provenance convention: flux7-mesh is recorded as the writer of the fact
 // (mem7 `agent` field, hardcoded below), not as its subject. The originating
 // agent that triggered the approval is preserved in the tags as
-// "agent:<id>". agent-mesh is the witness; the worker agent is the actor.
+// "agent:<id>". flux7-mesh is the witness; the worker agent is the actor.
 // This keeps cross-agent provenance queryable while preserving an honest
 // who-wrote-what audit trail — a future supervisor reading these decisions
 // must filter by the "agent:<id>" tag, not by the writer.
@@ -264,7 +264,7 @@ func (m *MemoryWriter) store(key, value string, tags []string) {
 				"key":   key,
 				"value": value,
 				"tags":  tags,
-				"agent": "agent-mesh",
+				"agent": "flux7-mesh",
 			},
 		},
 	}

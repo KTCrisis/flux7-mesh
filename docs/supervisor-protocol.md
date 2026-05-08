@@ -2,7 +2,7 @@
 
 Agent Mesh exposes a rich approval API so that external **supervisor agents** can review and resolve approval requests on behalf of humans.
 
-The supervisor is not built into agent-mesh. It's any external process — Python script, Go service, LangChain agent, Claude API call — that polls for pending approvals and resolves them. Agent-mesh provides the protocol; you bring the logic.
+The supervisor is not built into mesh7. It's any external process — Python script, Go service, LangChain agent, Claude API call — that polls for pending approvals and resolves them. Flux7-mesh provides the protocol; you bring the logic.
 
 ## Why
 
@@ -34,7 +34,7 @@ The goal is not to remove the human. It's to **protect human attention** for dec
 
 ```
                           ┌─────────────────────────────┐
-                          │        agent-mesh            │
+                          │        mesh7            │
                           │                              │
 Worker Agent ────────────>│  policy ──> approval store   │
                           │                  │           │
@@ -364,7 +364,7 @@ The policies evolve as trust is established through trace data.
 Multiple supervisors can coexist with different scopes using the `?tool=` filter:
 
 ```
-Worker Agents ──> agent-mesh ──> Approval Store
+Worker Agents ──> mesh7 ──> Approval Store
                                       │
                          ┌────────────┼────────────┐
                          v            v            v
@@ -390,8 +390,8 @@ A complete supervisor implementation is available in the [agent7](https://github
 
 - **Rule engine** — first-match-wins rules with a simple DSL (`starts_with`, `equals`, `contains`). Fast path for known patterns (0ms).
 - **LLM fallback** — when no rule matches, calls Ollama for evaluation (~20s). Configurable model, system prompt, and confidence threshold.
-- **Process manager** — auto-spawns agent-mesh when it's down, monitors health, restarts on crash.
-- **Memory integration** — stores decisions in memory-mcp (via agent-mesh), recalls them on startup for context continuity across sessions.
+- **Process manager** — auto-spawns mesh7 when it's down, monitors health, restarts on crash.
+- **Memory integration** — stores decisions in memory-mcp (via mesh7), recalls them on startup for context continuity across sessions.
 - **JSONL audit trail** — every decision logged with reasoning, confidence, rule matched, and evaluation time.
 
 ### Quick start

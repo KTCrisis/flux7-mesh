@@ -1,4 +1,4 @@
-# flux7-mesh Python SDK
+# mesh7 Python SDK
 
 Governance mesh for AI agent tool calls. Wraps any Python function with policy enforcement, human approval, and tracing via [flux7-mesh](https://github.com/KTCrisis/flux7-mesh).
 
@@ -62,15 +62,15 @@ results = toolkit.process_response([b.model_dump() for b in response.content])
 
 The toolkit:
 1. **`schemas()`** — generates the `tools[]` array from Python function signatures
-2. **`process_response()`** — intercepts `tool_use` blocks, checks policy via agent-mesh, executes locally if allowed
+2. **`process_response()`** — intercepts `tool_use` blocks, checks policy via mesh7, executes locally if allowed
 3. **`execute()`** — single tool call with governance
 
 ## Prerequisites
 
-agent-mesh daemon running:
+mesh7 daemon running:
 
 ```bash
-agent-mesh serve --config config.yaml
+mesh7 serve --config config.yaml
 ```
 
 ## API

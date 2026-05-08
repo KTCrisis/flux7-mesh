@@ -1,6 +1,6 @@
 # CLI Tool Sources
 
-Govern CLI tools (terraform, kubectl, docker, gh, aws, gcloud…) through agent-mesh.
+Govern CLI tools (terraform, kubectl, docker, gh, aws, gcloud…) through mesh7.
 Agents call them via MCP or HTTP. Agent-mesh enforces policy, traces every call, and requires approval when configured — just like HTTP and MCP tools.
 
 No competitor covers CLI tool governance today.
@@ -162,7 +162,7 @@ Each declared command gets a named tool: `terraform.plan`, `kubectl.get`, etc.
 
 ### Dynamic dispatch (simple and fine-tuned modes)
 
-Non-strict tools also register a `<name>.__dispatch` catch-all tool. When an agent calls a tool that doesn't have an exact match (e.g. `terraform.init`), agent-mesh falls back to `terraform.__dispatch` and extracts the subcommand from the tool name.
+Non-strict tools also register a `<name>.__dispatch` catch-all tool. When an agent calls a tool that doesn't have an exact match (e.g. `terraform.init`), mesh7 falls back to `terraform.__dispatch` and extracts the subcommand from the tool name.
 
 This means agents can call `terraform.init` directly — they don't need to know about `__dispatch`.
 
@@ -296,8 +296,8 @@ See [`examples/cli-tools/config.yaml`](../examples/cli-tools/config.yaml) for a 
 
 ```bash
 # Start with CLI tools
-./agent-mesh --mcp --config examples/cli-tools/config.yaml
+./mesh7 --mcp --config examples/cli-tools/config.yaml
 
 # Or plug directly into Claude Code
-claude mcp add agent-mesh -- ./agent-mesh --mcp --config config.yaml
+claude mcp add mesh7 -- ./mesh7 --mcp --config config.yaml
 ```

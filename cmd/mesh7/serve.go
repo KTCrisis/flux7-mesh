@@ -22,7 +22,7 @@ func runServe(args []string) {
 	}
 	defer m.Close()
 
-	fmt.Fprintf(os.Stderr, "agent-mesh %s (%s) built %s\n", version, commit, date)
+	fmt.Fprintf(os.Stderr, "mesh7 %s (%s) built %s\n", version, commit, date)
 
 	if err := m.ServeHTTP(); err != nil {
 		slog.Error("server failed", "error", err)

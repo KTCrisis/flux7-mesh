@@ -41,7 +41,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("agent-mesh %s (%s) built %s\n", version, commit, date)
+		fmt.Printf("mesh7 %s (%s) built %s\n", version, commit, date)
 		return
 	}
 

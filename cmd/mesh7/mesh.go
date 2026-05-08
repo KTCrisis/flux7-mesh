@@ -240,7 +240,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 
 func (m *meshState) ServeHTTP() error {
 	addr := fmt.Sprintf(":%d", m.cfg.Port)
-	slog.Info("agent-mesh daemon listening", "addr", addr, "version", version)
+	slog.Info("mesh7 daemon listening", "addr", addr, "version", version)
 	slog.Info("endpoints",
 		"tool_call", fmt.Sprintf("POST http://localhost%s/tool/{name}", addr),
 		"list_tools", fmt.Sprintf("GET  http://localhost%s/tools", addr),

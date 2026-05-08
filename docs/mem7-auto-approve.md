@@ -1,6 +1,6 @@
 # Auto-approve from mem7
 
-agent-mesh queries [mem7](https://github.com/KTCrisis/flux7-memory) for past approval decisions before submitting to the approval queue. If a tool+agent pattern has enough consistent approvals (default: 3+, 0 rejections), the request is auto-approved.
+mesh7 queries [mem7](https://github.com/KTCrisis/flux7-memory) for past approval decisions before submitting to the approval queue. If a tool+agent pattern has enough consistent approvals (default: 3+, 0 rejections), the request is auto-approved.
 
 ## How it works
 
@@ -39,7 +39,7 @@ Set `auto_approve: false` to disable even when mem7 is configured.
 
 ## Example: testing end-to-end
 
-Prerequisites: agent-mesh v0.9.1+, mem7 running on `:9070`.
+Prerequisites: mesh7 v0.9.1+, mem7 running on `:9070`.
 
 ### 1. Verify mem7 is reachable
 
@@ -67,7 +67,7 @@ for i in 1 2 3; do
           \"key\": \"decision.filesystem.write_file.test${i}\",
           \"value\": \"approved by user:marc — agent:claude tool:filesystem.write_file reason:routine write\",
           \"tags\": [\"decision\", \"approved\", \"filesystem.write_file\", \"agent:claude\"],
-          \"agent\": \"agent-mesh\"
+          \"agent\": \"mesh7\"
         }
       }
     }"

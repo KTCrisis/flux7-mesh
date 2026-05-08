@@ -101,7 +101,7 @@ func TestServerInitialize(t *testing.T) {
 		t.Errorf("protocolVersion = %v", result["protocolVersion"])
 	}
 	info, _ := result["serverInfo"].(map[string]any)
-	if info["name"] != "agent-mesh" {
+	if info["name"] != "flux7-mesh" {
 		t.Errorf("serverInfo.name = %v", info["name"])
 	}
 }
@@ -592,7 +592,7 @@ func TestServerApprovalFallbackNoStore(t *testing.T) {
 
 // TestUpstreamSchemaPassthrough verifies that JSON Schema constructs received
 // from an upstream MCP server — anyOf, items, enum, nested objects — survive
-// the round-trip through agent-mesh's registry and re-export layer.
+// the round-trip through mesh7's registry and re-export layer.
 //
 // Regression test for the silent downgrade where optional parameters declared
 // as `list[dict] | None` upstream were rewritten to {type: "string"} on
@@ -651,7 +651,7 @@ func TestUpstreamSchemaPassthrough(t *testing.T) {
 		}
 	}
 
-	// Convert into a registry MCPToolDef the way cmd/agent-mesh/main.go does,
+	// Convert into a registry MCPToolDef the way cmd/mesh7/main.go does,
 	// then register and verify the RawSchema is carried on the Param.
 	props := make(map[string]registry.MCPPropDef, len(tool.InputSchema.Properties))
 	for name, p := range tool.InputSchema.Properties {

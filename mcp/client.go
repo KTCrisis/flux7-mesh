@@ -106,7 +106,7 @@ func (c *MCPClient) connectInternal(ctx context.Context) error {
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
-			"name":    "agent-mesh",
+			"name":    "flux7-mesh",
 			"version": "0.1.0",
 		},
 	})

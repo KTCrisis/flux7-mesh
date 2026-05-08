@@ -30,7 +30,7 @@ func NewOTELExporter(endpoint string) *OTELExporter {
 	exp := &OTELExporter{
 		endpoint: endpoint,
 		client:   &http.Client{Timeout: 5 * time.Second},
-		service:  "agent-mesh",
+		service:  "flux7-mesh",
 	}
 
 	// If not stdout and not http, treat as file path
@@ -200,7 +200,7 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 				},
 			},
 			ScopeSpans: []otlpScopeSpan{{
-				Scope: otlpScope{Name: "agent-mesh", Version: "0.6.0"},
+				Scope: otlpScope{Name: "flux7-mesh", Version: "0.6.0"},
 				Spans: []otlpSpan{{
 					TraceID:           traceID,
 					SpanID:            spanID,
@@ -221,7 +221,7 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 // without requiring a configured OTEL endpoint.
 func EntriesToOTLP(entries []Entry, service string) any {
 	if service == "" {
-		service = "agent-mesh"
+		service = "flux7-mesh"
 	}
 	exp := &OTELExporter{service: service}
 
@@ -241,7 +241,7 @@ func EntriesToOTLP(entries []Entry, service string) any {
 				},
 			},
 			ScopeSpans: []otlpScopeSpan{{
-				Scope: otlpScope{Name: "agent-mesh", Version: "0.6.0"},
+				Scope: otlpScope{Name: "flux7-mesh", Version: "0.6.0"},
 				Spans: spans,
 			}},
 		}},

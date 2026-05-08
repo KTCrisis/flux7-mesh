@@ -133,7 +133,7 @@ approval:
   notify_url: https://hooks.slack.com/services/...
 ```
 
-agent-mesh POSTs to this URL with the pending approval details. Useful for Slack/Teams alerts.
+mesh7 POSTs to this URL with the pending approval details. Useful for Slack/Teams alerts.
 
 ## Callback URL
 
@@ -146,7 +146,7 @@ curl -X POST http://localhost:9090/tool/gmail.send_email \
   -d '{"params":{"to":"user@example.com","subject":"Hello"}}'
 ```
 
-When the approval resolves, agent-mesh POSTs the result to `X-Callback-URL`.
+When the approval resolves, mesh7 POSTs the result to `X-Callback-URL`.
 
 ## Supervisor mode
 

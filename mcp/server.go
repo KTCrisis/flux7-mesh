@@ -60,7 +60,7 @@ type MCPSchema struct {
 // When MCPProp is unmarshalled from an upstream MCP server response, the full
 // raw JSON is preserved in Raw so it can be passed through verbatim on
 // re-export. This keeps schema constructs like "anyOf", "items", "enum" and
-// nested object schemas intact — agent-mesh stays a pure proxy and never has
+// nested object schemas intact — mesh7 stays a pure proxy and never has
 // to understand JSON Schema itself. Virtual/local tools can still be built
 // with a plain {Type, Description} literal; in that case Raw is empty and
 // MarshalJSON falls back to the shallow form.
@@ -192,7 +192,7 @@ func (s *Server) handleInitialize() map[string]any {
 			"tools": map[string]any{},
 		},
 		"serverInfo": map[string]any{
-			"name":    "agent-mesh",
+			"name":    "flux7-mesh",
 			"version": "0.1.0",
 		},
 	}
@@ -211,7 +211,7 @@ func (s *Server) handleToolsList() map[string]any {
 			if len(p.RawSchema) > 0 {
 				// Upstream MCP tool: pass the raw schema through verbatim so
 				// constructs like anyOf, items, enum and nested objects stay
-				// intact for downstream agents. agent-mesh does not interpret
+				// intact for downstream agents. mesh7 does not interpret
 				// or rebuild JSON Schema — it just proxies it.
 				props[p.Name] = MCPProp{Raw: p.RawSchema}
 			} else {
@@ -956,7 +956,7 @@ func (s *Server) promptTTY(toolName string, params map[string]any) (*bool, strin
 	}
 
 	// Skip TTY prompt when stdin is a pipe (MCP stdio mode via Claude Code / agent).
-	// The TTY would open the agent-mesh terminal, not the caller's terminal,
+	// The TTY would open the mesh7 terminal, not the caller's terminal,
 	// causing an invisible blocking prompt.
 	if fi, err := os.Stdin.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) == 0 {
 		slog.Debug("stdin is a pipe, skipping TTY prompt — use HTTP API or mesh CLI to approve")

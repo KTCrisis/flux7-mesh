@@ -34,7 +34,7 @@ flowchart LR
         A3["Any HTTP agent"]
     end
 
-    subgraph Mesh["agent-mesh (sidecar proxy)"]
+    subgraph Mesh["flux7-mesh (sidecar proxy)"]
         direction TB
         REG["Registry<br/>(tools)"]
         RL["Rate limiter<br/>+ loop detect"]
@@ -90,7 +90,7 @@ When you connect tools directly to an AI agent, the agent gets unguarded access 
 Put Agent Mesh between the agent and its tools:
 
 ```bash
-claude mcp add agent-mesh -- ./agent-mesh --mcp --config config.yaml
+claude mcp add flux7-mesh -- ./flux7-mesh --mcp --config config.yaml
 ```
 
 The agent sees a normal tool surface. Agent Mesh enforces policy and records traces on every call.
@@ -103,12 +103,12 @@ The agent sees a normal tool surface. Agent Mesh enforces policy and records tra
 VERSION=$(curl -s https://api.github.com/repos/KTCrisis/flux7-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
 
 # Linux amd64
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
-sudo mv agent-mesh /usr/local/bin/
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/flux7-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
+sudo mv flux7-mesh /usr/local/bin/
 
 # macOS Apple Silicon
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
-sudo mv agent-mesh /usr/local/bin/
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/flux7-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
+sudo mv flux7-mesh /usr/local/bin/
 ```
 
 All releases: [github.com/KTCrisis/flux7-mesh/releases](https://github.com/KTCrisis/flux7-mesh/releases)
@@ -119,11 +119,11 @@ Requires Go 1.24+:
 
 ```bash
 git clone https://github.com/KTCrisis/flux7-mesh.git
-cd agent-mesh
-make install    # builds to ~/go/bin/agent-mesh with version metadata
+cd flux7-mesh
+make install    # builds to ~/go/bin/flux7-mesh with version metadata
 
-agent-mesh --version
-# agent-mesh v0.10.1 (827c457) built 2026-05-08T...
+flux7-mesh --version
+# flux7-mesh v0.10.1 (827c457) built 2026-05-08T...
 ```
 
 ### Python SDK
@@ -201,14 +201,14 @@ policies:
 Or auto-generate one:
 
 ```bash
-agent-mesh discover --config config.yaml --generate-policy
-agent-mesh discover --openapi https://petstore.swagger.io/v2/swagger.json --generate-policy
+flux7-mesh discover --config config.yaml --generate-policy
+flux7-mesh discover --openapi https://petstore.swagger.io/v2/swagger.json --generate-policy
 ```
 
 ### 2. Plug into Claude Code
 
 ```bash
-claude mcp add agent-mesh -- agent-mesh --mcp --config config.yaml
+claude mcp add flux7-mesh -- flux7-mesh --mcp --config config.yaml
 ```
 
 ### 3. Use normally
@@ -362,7 +362,7 @@ memory:
 
 When configured, every approval resolve (approve, deny, timeout) is written to mem7 as a fact with tags `[decision, approved|denied, <tool>, agent:<id>]`.
 
-**Auto-approve from past decisions** — when `memory.url` is set, agent-mesh queries mem7 before submitting to the approval queue. If a tool+agent pattern has 3+ consistent approvals with 0 rejections, it is auto-approved (traced as `supervisor:mem7`). Governance gets less intrusive over time without getting less safe.
+**Auto-approve from past decisions** — when `memory.url` is set, mesh7 queries mem7 before submitting to the approval queue. If a tool+agent pattern has 3+ consistent approvals with 0 rejections, it is auto-approved (traced as `supervisor:mem7`). Governance gets less intrusive over time without getting less safe.
 
 ```yaml
 supervisor:
@@ -394,9 +394,9 @@ When a policy requires `human_approval`, the flow is non-blocking:
 
 ```
 Claude calls filesystem.write_file
-  → agent-mesh returns: "Approval required (id: a1b2c3d4)"
+  → mesh7 returns: "Approval required (id: a1b2c3d4)"
   → Claude calls approval.resolve(id: a1b2c3d4, decision: approve)
-  → agent-mesh replays the original tool call
+  → mesh7 replays the original tool call
   → Result returned to Claude
 ```
 
@@ -458,13 +458,13 @@ External supervisor agents can poll `GET /approvals?status=pending`, evaluate wi
 
 ## Commands & flags
 
-### `agent-mesh` (main binary)
+### `mesh7` (main binary)
 
 ```bash
-agent-mesh [flags]                           # run proxy (HTTP or MCP mode)
-agent-mesh serve [flags]                     # run as persistent daemon
-agent-mesh discover [flags]                  # discover tools + generate policy
-agent-mesh --version                         # print version
+mesh7 [flags]                           # run proxy (HTTP or MCP mode)
+mesh7 serve [flags]                     # run as persistent daemon
+flux7-mesh discover [flags]                  # discover tools + generate policy
+mesh7 --version                         # print version
 ```
 
 | Flag | Default | Description |
@@ -524,9 +524,9 @@ Set `MESH_URL` to override the default `http://localhost:9090`.
 ## Project structure
 
 ```
-agent-mesh/
+flux7-mesh/
 ├── cmd/
-│   ├── agent-mesh/        # Main binary (entry point, wiring)
+│   ├── mesh7/        # Main binary (entry point, wiring)
 │   └── mesh/              # Approval CLI (pending/approve/deny/watch)
 ├── config/                # YAML config parsing + validation
 ├── registry/              # Tool registry (OpenAPI + MCP + CLI imports)
@@ -574,7 +574,7 @@ go test ./... -race        # with race detector
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
 - [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
-- [x] `agent-mesh serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
+- [x] `mesh7 serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
 - [x] Python SDK (`pip install flux7-mesh` — GovernedToolkit for Claude API tool_use, direct HTTP client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery

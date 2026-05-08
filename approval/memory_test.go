@@ -60,8 +60,8 @@ func TestMemoryWriterWriteDecision(t *testing.T) {
 		if len(tags) < 3 {
 			t.Fatalf("expected at least 3 tags, got %d", len(tags))
 		}
-		if args["agent"] != "agent-mesh" {
-			t.Fatalf("expected agent=agent-mesh, got %v", args["agent"])
+		if args["agent"] != "flux7-mesh" {
+			t.Fatalf("expected agent=flux7-mesh, got %v", args["agent"])
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for memory write")

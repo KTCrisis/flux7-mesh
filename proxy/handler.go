@@ -608,7 +608,7 @@ func (h *Handler) handleOTELTraces(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	entries := h.Traces.Query(agent, tool, limit)
-	writeJSON(w, 200, trace.EntriesToOTLP(entries, "agent-mesh"))
+	writeJSON(w, 200, trace.EntriesToOTLP(entries, "flux7-mesh"))
 }
 
 func (h *Handler) handleMCPServers(w http.ResponseWriter, _ *http.Request) {

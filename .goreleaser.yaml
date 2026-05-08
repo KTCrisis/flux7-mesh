@@ -1,14 +1,14 @@
 version: 2
 
-project_name: agent-mesh
+project_name: flux7-mesh
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - main: ./cmd/agent-mesh
-    binary: agent-mesh
+  - main: ./cmd/flux7-mesh
+    binary: flux7-mesh
     env:
       - CGO_ENABLED=0
     goos:
@@ -44,5 +44,5 @@ changelog:
 release:
   github:
     owner: KTCrisis
-    name: agent-mesh
+    name: flux7-mesh
   replace_existing_artifacts: true

@@ -24,7 +24,7 @@ func runDiscover(args []string) {
 	fs.Parse(args)
 
 	if *configPath == "" && *specURL == "" {
-		fmt.Fprintln(os.Stderr, "Usage: agent-mesh discover [--config config.yaml] [--openapi <url>] [--generate-policy]")
+		fmt.Fprintln(os.Stderr, "Usage: mesh7 discover [--config config.yaml] [--openapi <url>] [--generate-policy]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Discover tools from MCP servers and OpenAPI specs without starting the proxy.")
 		os.Exit(1)

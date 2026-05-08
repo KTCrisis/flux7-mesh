@@ -25,7 +25,7 @@ Every span includes the following attributes:
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `service.name` | resource | Always `agent-mesh` |
+| `service.name` | resource | Always `mesh7` |
 | `agent.id` | string | Agent identity (e.g. `claude`, `crewai-researcher`) |
 | `tool.name` | string | Tool that was called (e.g. `filesystem.write_file`) |
 | `policy.action` | string | Policy decision: `allow`, `deny`, `human_approval` |
@@ -45,7 +45,7 @@ Span kind is `SERVER` (3). Status code is `OK` (1) for allowed calls, `ERROR` (2
 The simplest mode — each line is a complete OTLP JSON export:
 
 ```yaml
-otel_endpoint: /home/user/agent-mesh/traces-otel.jsonl
+otel_endpoint: /home/user/mesh7/traces-otel.jsonl
 ```
 
 Query with `jq`:

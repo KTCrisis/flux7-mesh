@@ -1,27 +1,27 @@
 # Getting Started
 
-Install agent-mesh, write your first policy, and make a governed tool call. Five minutes.
+Install mesh7, write your first policy, and make a governed tool call. Five minutes.
 
 ## Install
 
 === "Go install"
 
     ```bash
-    go install github.com/KTCrisis/flux7-mesh/cmd/agent-mesh@latest
+    go install github.com/KTCrisis/flux7-mesh/cmd/flux7-mesh@latest
     ```
 
 === "Binary (Linux amd64)"
 
     ```bash
-    curl -L $(curl -s https://api.github.com/repos/KTCrisis/agent-mesh/releases/latest \
+    curl -L $(curl -s https://api.github.com/repos/KTCrisis/mesh7/releases/latest \
       | grep browser_download_url | grep linux_amd64 | cut -d '"' -f 4) \
-      -o agent-mesh && chmod +x agent-mesh && sudo mv agent-mesh /usr/local/bin/
+      -o mesh7 && chmod +x mesh7 && sudo mv mesh7 /usr/local/bin/
     ```
 
 Verify:
 
 ```bash
-agent-mesh --version
+mesh7 --version
 ```
 
 ## Minimal config
@@ -57,10 +57,10 @@ This config:
 ## Run with Claude Code
 
 ```bash
-claude mcp add agent-mesh -- agent-mesh --mcp --config config.yaml
+claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
-Claude Code now routes all tool calls through agent-mesh. Open Claude Code and try:
+Claude Code now routes all tool calls through mesh7. Open Claude Code and try:
 
 ```
 > Read the file config.yaml
@@ -72,12 +72,12 @@ This should work (policy: allow). Now try:
 > Write "hello" to /home/user/test.txt
 ```
 
-You'll see an approval prompt. Say yes — agent-mesh traces the decision.
+You'll see an approval prompt. Say yes — mesh7 traces the decision.
 
 ## Run standalone (HTTP mode)
 
 ```bash
-agent-mesh --config config.yaml
+mesh7 --config config.yaml
 ```
 
 ```bash
@@ -97,7 +97,7 @@ curl http://localhost:9090/traces | python3 -m json.tool
 ## What just happened
 
 ```
-Your agent ──► agent-mesh ──► filesystem MCP server
+Your agent ──► mesh7 ──► filesystem MCP server
                   │
                   ├── policy check (allow / deny / human_approval)
                   ├── rate limit check
