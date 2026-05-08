@@ -105,12 +105,8 @@ class GovernedToolkit:
                 tool=tool_name,
                 error=f"unknown tool: {tool_name}",
             )
-        decision = self._mesh.call_tool(tool_name, tool_input)
-        if decision.action == Action.DENY:
-            return decision
-        if decision.action == Action.HUMAN_APPROVAL:
-            return decision
-        if decision.action == Action.ERROR:
+        decision = self._mesh.decide(tool_name, tool_input)
+        if decision.action != Action.ALLOW:
             return decision
         try:
             result = self._tools[tool_name](**tool_input)

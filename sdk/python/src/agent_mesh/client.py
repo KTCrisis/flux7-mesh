@@ -61,6 +61,25 @@ class AgentMesh:
         self._session.headers["Authorization"] = f"Bearer agent:{agent}"
         self._session.headers["Content-Type"] = "application/json"
 
+    def decide(self, name: str, arguments: dict[str, Any] | None = None) -> Decision:
+        """Evaluate policy without executing. Returns allow/deny/human_approval."""
+        resp = self._session.post(
+            f"{self._url}/decide",
+            json={"agent": self._agent, "tool": name, "arguments": arguments or {}},
+            timeout=self._timeout,
+        )
+        body = resp.json() if resp.content else {}
+        action = body.get("action", "error")
+        try:
+            act = Action(action)
+        except ValueError:
+            act = Action.ERROR
+        return Decision(
+            action=act,
+            tool=name,
+            error=body.get("reason", "") if act == Action.DENY else "",
+        )
+
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Decision:
         """Execute a tool call through agent-mesh (policy + execute + trace)."""
         resp = self._session.post(

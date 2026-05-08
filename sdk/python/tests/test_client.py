@@ -28,6 +28,41 @@ class TestInit:
         assert m._url == "http://localhost:9090"
 
 
+class TestDecide:
+    def test_allow(self, mesh):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b'{"action":"allow","rule":"allow-all","agent":"test-agent","tool":"fs.read"}'
+        mock_resp.json.return_value = {"action": "allow", "rule": "allow-all", "agent": "test-agent", "tool": "fs.read"}
+        with patch.object(mesh._session, "post", return_value=mock_resp) as mock_post:
+            d = mesh.decide("fs.read", {"path": "/tmp"})
+        assert d.action == Action.ALLOW
+        assert d.tool == "fs.read"
+        body = mock_post.call_args[1]["json"]
+        assert body["agent"] == "test-agent"
+        assert body["tool"] == "fs.read"
+        assert mock_post.call_args[0][0] == "http://localhost:9090/decide"
+
+    def test_deny(self, mesh):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_resp.content = b'{"action":"deny","reason":"blocked by policy"}'
+        mock_resp.json.return_value = {"action": "deny", "reason": "blocked by policy"}
+        with patch.object(mesh._session, "post", return_value=mock_resp):
+            d = mesh.decide("dangerous.tool", {})
+        assert d.action == Action.DENY
+        assert "blocked" in d.error
+
+    def test_human_approval(self, mesh):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = b'{"action":"human_approval","rule":"needs-approval"}'
+        mock_resp.json.return_value = {"action": "human_approval", "rule": "needs-approval"}
+        with patch.object(mesh._session, "post", return_value=mock_resp):
+            d = mesh.decide("fs.write", {})
+        assert d.action == Action.HUMAN_APPROVAL
+
+
 class TestCallTool:
     def test_allowed(self, mesh):
         mock_resp = MagicMock()

@@ -499,6 +499,7 @@ Set `MESH_URL` to override the default `http://localhost:9090`.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `POST` | `/decide` | Evaluate policy without executing (returns allow/deny/human_approval) |
 | `POST` | `/tool/{name}` | Proxy a tool call through policy |
 | `POST` | `/mcp` | MCP Streamable HTTP transport (JSON-RPC) |
 | `DELETE` | `/mcp` | Terminate MCP HTTP session |
@@ -552,7 +553,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-255 Go tests across 15 packages + 26 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
+260 Go tests across 15 packages + 29 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
 
 ## Roadmap
 

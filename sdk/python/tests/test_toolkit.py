@@ -47,14 +47,14 @@ class TestSchemas:
 class TestExecute:
     def test_allowed_runs_locally(self, toolkit):
         mock_decision = Decision(action=Action.ALLOW, tool="get_weather", result="")
-        with patch.object(toolkit._mesh, "call_tool", return_value=mock_decision):
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision):
             d = toolkit.execute("get_weather", {"city": "Paris"})
         assert d.action == Action.ALLOW
         assert d.result == "sunny in Paris"
 
     def test_denied_does_not_run(self, toolkit):
         mock_decision = Decision(action=Action.DENY, tool="get_weather", error="denied")
-        with patch.object(toolkit._mesh, "call_tool", return_value=mock_decision):
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision):
             d = toolkit.execute("get_weather", {"city": "Paris"})
         assert d.action == Action.DENY
         assert d.result == ""
@@ -70,7 +70,7 @@ class TestExecute:
 
         toolkit.register(failing_tool, "failing")
         mock_decision = Decision(action=Action.ALLOW, tool="failing", result="")
-        with patch.object(toolkit._mesh, "call_tool", return_value=mock_decision):
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision):
             d = toolkit.execute("failing", {})
         assert d.action == Action.ERROR
         assert "boom" in d.error
@@ -79,7 +79,7 @@ class TestExecute:
 class TestProcessResponse:
     def test_processes_tool_use_blocks(self, toolkit):
         mock_decision = Decision(action=Action.ALLOW, tool="get_weather", result="")
-        with patch.object(toolkit._mesh, "call_tool", return_value=mock_decision):
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision):
             results = toolkit.process_response([
                 {"type": "text", "text": "Let me check the weather."},
                 {"type": "tool_use", "id": "tu_1", "name": "get_weather", "input": {"city": "Lyon"}},
@@ -91,7 +91,7 @@ class TestProcessResponse:
 
     def test_denied_tool_returns_error(self, toolkit):
         mock_decision = Decision(action=Action.DENY, tool="get_weather", error="denied by policy")
-        with patch.object(toolkit._mesh, "call_tool", return_value=mock_decision):
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision):
             results = toolkit.process_response([
                 {"type": "tool_use", "id": "tu_2", "name": "get_weather", "input": {"city": "Lyon"}},
             ])
@@ -102,7 +102,7 @@ class TestProcessResponse:
         mock_decision = Decision(
             action=Action.HUMAN_APPROVAL, tool="get_weather", approval_id="ap_123"
         )
-        with patch.object(toolkit._mesh, "call_tool", return_value=mock_decision):
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision):
             results = toolkit.process_response([
                 {"type": "tool_use", "id": "tu_3", "name": "get_weather", "input": {"city": "Lyon"}},
             ])

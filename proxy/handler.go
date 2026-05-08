@@ -78,6 +78,8 @@ func NewHandler(reg *registry.Registry, pol *policy.Engine, traces *trace.Store)
 // ServeHTTP routes requests to the appropriate handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.Method == "POST" && r.URL.Path == "/decide":
+		h.handleDecide(w, r)
 	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/tool/"):
 		h.handleToolCall(w, r)
 	case r.Method == "GET" && r.URL.Path == "/tools":
@@ -371,6 +373,81 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, resp)
+}
+
+// handleDecide evaluates policy without executing the tool.
+// Returns the decision (allow/deny/human_approval) and traces it.
+func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Agent     string         `json:"agent"`
+		Tool      string         `json:"tool"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "invalid JSON body"})
+		return
+	}
+
+	agentID := req.Agent
+	if agentID == "" {
+		agentID = extractAgentID(r)
+	}
+	toolName := req.Tool
+	if toolName == "" {
+		writeJSON(w, 400, map[string]any{"error": "tool field required"})
+		return
+	}
+
+	traceID := extractTraceID(r)
+	if traceID == "" {
+		traceID = trace.NewID()
+	}
+	sessionID := extractSessionID(r)
+	start := time.Now()
+
+	decision := h.Policy.Evaluate(agentID, toolName, req.Arguments)
+
+	if decision.Action == "human_approval" && h.Grants != nil {
+		if g := h.Grants.Check(agentID, toolName); g != nil {
+			decision.Action = "allow"
+			decision.Rule = "grant:" + g.ID
+			decision.Reason = fmt.Sprintf("temporal grant %s", g.ID)
+		}
+	}
+
+	if decision.Action == "human_approval" && h.Approvals != nil {
+		if res := h.Approvals.TryAutoResolve(agentID, toolName); res != nil {
+			decision.Action = "allow"
+			decision.Rule = "supervisor:mem7"
+			decision.Reason = res.Reasoning
+		}
+	}
+
+	entry := trace.Entry{
+		TraceID:    traceID,
+		SessionID:  sessionID,
+		AgentID:    agentID,
+		Tool:       toolName,
+		Params:     req.Arguments,
+		Policy:     decision.Action,
+		PolicyRule: decision.Rule,
+		LatencyMs:  time.Since(start).Milliseconds(),
+	}
+	h.Traces.Record(entry)
+
+	status := 200
+	if decision.Action == "deny" {
+		status = 403
+	}
+
+	writeJSON(w, status, map[string]any{
+		"action":   decision.Action,
+		"rule":     decision.Rule,
+		"reason":   decision.Reason,
+		"agent":    agentID,
+		"tool":     toolName,
+		"trace_id": traceID,
+	})
 }
 
 // Forward sends the request to the appropriate backend (HTTP, MCP, or CLI).

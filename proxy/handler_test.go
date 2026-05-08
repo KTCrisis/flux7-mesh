@@ -1112,3 +1112,114 @@ func TestHandleMetrics(t *testing.T) {
 		t.Error("missing Prometheus HELP/TYPE annotations")
 	}
 }
+
+func TestHandleDecideAllow(t *testing.T) {
+	h, _ := setupHandler(t)
+	body := `{"agent":"test-bot","tool":"get_pet","arguments":{}}`
+	req := httptest.NewRequest("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["action"] != "allow" {
+		t.Fatalf("expected allow, got %v", resp["action"])
+	}
+	if resp["agent"] != "test-bot" {
+		t.Fatalf("expected test-bot, got %v", resp["agent"])
+	}
+	if resp["tool"] != "get_pet" {
+		t.Fatalf("expected get_pet, got %v", resp["tool"])
+	}
+	if resp["trace_id"] == "" {
+		t.Fatal("expected trace_id")
+	}
+}
+
+func TestHandleDecideDeny(t *testing.T) {
+	reg := registry.New()
+	pol := policy.NewEngine([]config.Policy{
+		{Name: "deny-all", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"*"}, Action: "deny"},
+		}},
+	})
+	h := NewHandler(reg, pol, trace.NewStore(1000))
+
+	body := `{"agent":"evil","tool":"filesystem.delete","arguments":{"path":"/etc"}}`
+	req := httptest.NewRequest("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != 403 {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["action"] != "deny" {
+		t.Fatalf("expected deny, got %v", resp["action"])
+	}
+}
+
+func TestHandleDecideWithGrant(t *testing.T) {
+	reg := registry.New()
+	pol := policy.NewEngine([]config.Policy{
+		{Name: "approval", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"*"}, Action: "human_approval"},
+		}},
+	})
+	h := NewHandler(reg, pol, trace.NewStore(1000))
+	h.Grants = grant.NewStore()
+	h.Grants.Add("test-bot", "fs.*", "test", 10*time.Minute)
+
+	body := `{"agent":"test-bot","tool":"fs.write","arguments":{}}`
+	req := httptest.NewRequest("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["action"] != "allow" {
+		t.Fatalf("expected allow (grant override), got %v", resp["action"])
+	}
+	if rule, _ := resp["rule"].(string); !strings.HasPrefix(rule, "grant:") {
+		t.Fatalf("expected grant: rule, got %v", resp["rule"])
+	}
+}
+
+func TestHandleDecideAgentFromHeader(t *testing.T) {
+	h, _ := setupHandler(t)
+	body := `{"tool":"get_pet","arguments":{}}`
+	req := httptest.NewRequest("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer agent:header-bot")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	var resp map[string]any
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["agent"] != "header-bot" {
+		t.Fatalf("expected header-bot from Authorization header, got %v", resp["agent"])
+	}
+}
+
+func TestHandleDecideMissingTool(t *testing.T) {
+	h, _ := setupHandler(t)
+	body := `{"agent":"bot","arguments":{}}`
+	req := httptest.NewRequest("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != 400 {
+		t.Fatalf("expected 400 for missing tool, got %d", rr.Code)
+	}
+}
