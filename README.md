@@ -420,6 +420,7 @@ External supervisor agents can poll `GET /approvals?status=pending`, evaluate wi
 
 ```bash
 agent-mesh [flags]                           # run proxy (HTTP or MCP mode)
+agent-mesh serve [flags]                     # run as persistent daemon
 agent-mesh discover [flags]                  # discover tools + generate policy
 agent-mesh --version                         # print version
 ```
@@ -433,6 +434,8 @@ agent-mesh --version                         # print version
 | `--mcp` | `false` | MCP mode (stdio JSON-RPC — auto-proxies to daemon if running) |
 | `--mcp-agent` | `claude` | Agent ID for MCP-mode policy evaluation |
 | `--mcp-session-id` | auto-generated | Session ID for MCP traces |
+
+`serve` flags: `--config <path>`, `--port <port>`. Runs as a persistent HTTP daemon. MCP clients auto-proxy to it via `--mcp`.
 
 `discover` flags: `--openapi <url>`, `--config <path>`, `--generate-policy`, `--backend <url>`.
 
@@ -527,7 +530,7 @@ go test ./... -race        # with race detector
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
 - [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
-- [ ] `agent-mesh serve` daemon mode (persistent, multi-client)
+- [x] `agent-mesh serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery
 - [ ] Policy hot-reload
