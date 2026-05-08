@@ -45,7 +45,11 @@ func main() {
 		return
 	}
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	logDest := os.Stdout
+	if *mcpMode {
+		logDest = os.Stderr
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(logDest, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	// MCP auto-proxy: detect running daemon before heavy init
 	if *mcpMode {
@@ -55,7 +59,6 @@ func main() {
 				p = *port
 			}
 			if daemonRunning(p) {
-				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 				if err := runStdioProxy(p, *mcpAgent); err != nil {
 					slog.Error("proxy failed", "error", err)
 					os.Exit(1)
@@ -73,8 +76,6 @@ func main() {
 	defer m.Close()
 
 	if *mcpMode {
-		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
-
 		addr := fmt.Sprintf(":%d", m.cfg.Port)
 		go func() {
 			slog.Info("approval API available", "url", fmt.Sprintf("http://localhost%s/approvals", addr))
