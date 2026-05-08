@@ -1,6 +1,6 @@
 # Agent Mesh
 
-[![GitHub release](https://img.shields.io/github/v/release/KTCrisis/agent-mesh?style=flat-square&color=00bcd4)](https://github.com/KTCrisis/agent-mesh/releases)
+[![GitHub release](https://img.shields.io/github/v/release/KTCrisis/agent-mesh?style=flat-square&color=00bcd4)](https://github.com/KTCrisis/flux7-mesh/releases)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 
@@ -103,22 +103,22 @@ The agent sees a normal tool surface. Agent Mesh enforces policy and records tra
 VERSION=$(curl -s https://api.github.com/repos/KTCrisis/agent-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
 
 # Linux amd64
-curl -L "https://github.com/KTCrisis/agent-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
 sudo mv agent-mesh /usr/local/bin/
 
 # macOS Apple Silicon
-curl -L "https://github.com/KTCrisis/agent-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
 sudo mv agent-mesh /usr/local/bin/
 ```
 
-All releases: [github.com/KTCrisis/agent-mesh/releases](https://github.com/KTCrisis/agent-mesh/releases)
+All releases: [github.com/KTCrisis/flux7-mesh/releases](https://github.com/KTCrisis/flux7-mesh/releases)
 
 ### From source
 
 Requires Go 1.24+:
 
 ```bash
-git clone https://github.com/KTCrisis/agent-mesh.git
+git clone https://github.com/KTCrisis/flux7-mesh.git
 cd agent-mesh
 make install    # builds to ~/go/bin/agent-mesh with version metadata
 
@@ -352,7 +352,7 @@ Agents matching `supervisor_agents` globs are whitelisted: they see and can call
 
 ### Memory integration
 
-Persist approval decisions as queryable facts in [mem7](https://github.com/KTCrisis/mem7). Fire-and-forget — a failing mem7 never blocks approvals.
+Persist approval decisions as queryable facts in [mem7](https://github.com/KTCrisis/flux7-memory). Fire-and-forget — a failing mem7 never blocks approvals.
 
 ```yaml
 memory:
@@ -568,8 +568,8 @@ go test ./... -race        # with race detector
 - [x] Supervisor protocol (content isolation, injection detection)
 - [x] CLI tool governance (3 modes, secure exec)
 - [x] OpenAPI config field (persistent import)
-- [x] Dashboard UI (via [agent7](https://github.com/KTCrisis/agent7))
-- [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/mem7) as queryable facts)
+- [x] Dashboard UI (via [agent7](https://github.com/KTCrisis/flux7-console))
+- [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/flux7-memory) as queryable facts)
 - [x] Auto-approve from mem7 (built-in Level 1 supervisor — queries past decisions, auto-approves routine patterns)
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)

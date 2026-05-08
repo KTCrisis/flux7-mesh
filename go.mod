@@ -1,4 +1,4 @@
-module github.com/KTCrisis/agent-mesh
+module github.com/KTCrisis/flux7-mesh
 
 go 1.25.0
 

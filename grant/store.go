@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/internal/match"
+	"github.com/KTCrisis/flux7-mesh/internal/match"
 )
 
 // Grant is a temporary permission override.

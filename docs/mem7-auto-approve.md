@@ -1,6 +1,6 @@
 # Auto-approve from mem7
 
-agent-mesh queries [mem7](https://github.com/KTCrisis/mem7) for past approval decisions before submitting to the approval queue. If a tool+agent pattern has enough consistent approvals (default: 3+, 0 rejections), the request is auto-approved.
+agent-mesh queries [mem7](https://github.com/KTCrisis/flux7-memory) for past approval decisions before submitting to the approval queue. If a tool+agent pattern has enough consistent approvals (default: 3+, 0 rejections), the request is auto-approved.
 
 ## How it works
 

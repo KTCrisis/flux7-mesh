@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/KTCrisis/agent-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/config"
 )
 
 func TestNewRegistry(t *testing.T) {

@@ -7,7 +7,7 @@ Install agent-mesh, write your first policy, and make a governed tool call. Five
 === "Go install"
 
     ```bash
-    go install github.com/KTCrisis/agent-mesh/cmd/agent-mesh@latest
+    go install github.com/KTCrisis/flux7-mesh/cmd/agent-mesh@latest
     ```
 
 === "Binary (Linux amd64)"

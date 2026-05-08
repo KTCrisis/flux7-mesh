@@ -1,6 +1,6 @@
 # agent-mesh Python SDK
 
-Governance mesh for AI agent tool calls. Wraps any Python function with policy enforcement, human approval, and tracing via [agent-mesh](https://github.com/KTCrisis/agent-mesh).
+Governance mesh for AI agent tool calls. Wraps any Python function with policy enforcement, human approval, and tracing via [agent-mesh](https://github.com/KTCrisis/flux7-mesh).
 
 ## Install
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/storage"
+	"github.com/KTCrisis/flux7-mesh/storage"
 )
 
 func newTestStoreWithDB(t *testing.T) *Store {

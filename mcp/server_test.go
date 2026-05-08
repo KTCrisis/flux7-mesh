@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/approval"
-	"github.com/KTCrisis/agent-mesh/config"
-	"github.com/KTCrisis/agent-mesh/policy"
-	"github.com/KTCrisis/agent-mesh/proxy"
-	"github.com/KTCrisis/agent-mesh/registry"
-	"github.com/KTCrisis/agent-mesh/trace"
+	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/policy"
+	"github.com/KTCrisis/flux7-mesh/proxy"
+	"github.com/KTCrisis/flux7-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/trace"
 )
 
 func testServer() *Server {

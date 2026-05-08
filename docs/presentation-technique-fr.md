@@ -390,7 +390,7 @@ L'objectif n'est pas de remplacer l'humain mais de **protéger son attention** p
 
 ### Implémentation de référence
 
-Une implémentation Python complète est disponible dans le projet [agent7](https://github.com/KTCrisis/agent7) :
+Une implémentation Python complète est disponible dans le projet [agent7](https://github.com/KTCrisis/flux7-console) :
 
 - Moteur de règles (fast path, 0ms)
 - Fallback LLM via Ollama (configurable, ~20s)
@@ -479,18 +479,18 @@ Voir [docs/deployment-modes.md](deployment-modes.md) pour la matrice complète d
 VERSION=$(curl -s https://api.github.com/repos/KTCrisis/agent-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
 
 # Linux (amd64)
-curl -L "https://github.com/KTCrisis/agent-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
 sudo mv agent-mesh /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L "https://github.com/KTCrisis/agent-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
 sudo mv agent-mesh /usr/local/bin/
 ```
 
 ### Depuis les sources
 
 ```bash
-git clone https://github.com/KTCrisis/agent-mesh.git
+git clone https://github.com/KTCrisis/flux7-mesh.git
 cd agent-mesh
 go build -o agent-mesh .
 ```

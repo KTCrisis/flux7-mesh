@@ -11,17 +11,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/approval"
-	"github.com/KTCrisis/agent-mesh/config"
-	meshexec "github.com/KTCrisis/agent-mesh/exec"
-	"github.com/KTCrisis/agent-mesh/grant"
-	"github.com/KTCrisis/agent-mesh/mcp"
-	"github.com/KTCrisis/agent-mesh/policy"
-	"github.com/KTCrisis/agent-mesh/proxy"
-	"github.com/KTCrisis/agent-mesh/ratelimit"
-	"github.com/KTCrisis/agent-mesh/registry"
-	"github.com/KTCrisis/agent-mesh/storage"
-	"github.com/KTCrisis/agent-mesh/trace"
+	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/config"
+	meshexec "github.com/KTCrisis/flux7-mesh/exec"
+	"github.com/KTCrisis/flux7-mesh/grant"
+	"github.com/KTCrisis/flux7-mesh/mcp"
+	"github.com/KTCrisis/flux7-mesh/policy"
+	"github.com/KTCrisis/flux7-mesh/proxy"
+	"github.com/KTCrisis/flux7-mesh/ratelimit"
+	"github.com/KTCrisis/flux7-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/storage"
+	"github.com/KTCrisis/flux7-mesh/trace"
 )
 
 type meshState struct {

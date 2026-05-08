@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/approval"
-	"github.com/KTCrisis/agent-mesh/config"
-	meshexec "github.com/KTCrisis/agent-mesh/exec"
-	"github.com/KTCrisis/agent-mesh/grant"
-	"github.com/KTCrisis/agent-mesh/internal/match"
-	"github.com/KTCrisis/agent-mesh/policy"
-	"github.com/KTCrisis/agent-mesh/ratelimit"
-	"github.com/KTCrisis/agent-mesh/registry"
-	"github.com/KTCrisis/agent-mesh/supervisor"
-	"github.com/KTCrisis/agent-mesh/trace"
+	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/config"
+	meshexec "github.com/KTCrisis/flux7-mesh/exec"
+	"github.com/KTCrisis/flux7-mesh/grant"
+	"github.com/KTCrisis/flux7-mesh/internal/match"
+	"github.com/KTCrisis/flux7-mesh/policy"
+	"github.com/KTCrisis/flux7-mesh/ratelimit"
+	"github.com/KTCrisis/flux7-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/supervisor"
+	"github.com/KTCrisis/flux7-mesh/trace"
 )
 
 // ToolCallRequest is the JSON body sent by the agent.

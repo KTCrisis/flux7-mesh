@@ -53,7 +53,7 @@ Three layers :
 | 1+ | External supervisor | ~20s | Novel cases (rule engine + LLM) |
 | 2 | Human | minutes | Unknowns, high-stakes decisions |
 
-Every decision is stored as a fact in [mem7](https://github.com/KTCrisis/mem7). Every tool call is a trace. Both are queryable.
+Every decision is stored as a fact in [mem7](https://github.com/KTCrisis/flux7-memory). Every tool call is a trace. Both are queryable.
 
 ## What makes it different
 
@@ -76,14 +76,14 @@ Closest comparable : Microsoft Agent Governance Toolkit. But middleware vs sidec
 - **Governance** — YAML policies, glob patterns, conditions, per-agent policy files, specificity sort
 - **Approval** — async queue, temporal grants, supervisor protocol, mem7 auto-approve
 - **Observability** — JSONL traces, OTEL export, session tracking, Prometheus metrics
-- **Integrations** — [mem7](https://github.com/KTCrisis/mem7) (decision persistence + auto-approve), [agent7](https://github.com/KTCrisis/agent7) (dashboard + governance UI)
+- **Integrations** — [mem7](https://github.com/KTCrisis/flux7-memory) (decision persistence + auto-approve), [agent7](https://github.com/KTCrisis/flux7-console) (dashboard + governance UI)
 - **Next** — durable state, daemon mode (`agent-mesh serve`), operator auth
 
 ## Get started
 
 ```bash
 # Install
-go install github.com/KTCrisis/agent-mesh/cmd/agent-mesh@latest
+go install github.com/KTCrisis/flux7-mesh/cmd/agent-mesh@latest
 
 # Add to Claude Code
 claude mcp add agent-mesh -- agent-mesh --mcp --config config.yaml
@@ -92,4 +92,4 @@ claude mcp add agent-mesh -- agent-mesh --mcp --config config.yaml
 agent-mesh --config config.yaml
 ```
 
-MIT licensed. [github.com/KTCrisis/agent-mesh](https://github.com/KTCrisis/agent-mesh)
+MIT licensed. [github.com/KTCrisis/flux7-mesh](https://github.com/KTCrisis/flux7-mesh)

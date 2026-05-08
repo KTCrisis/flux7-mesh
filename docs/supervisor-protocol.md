@@ -384,7 +384,7 @@ Domain-specific supervision improves judgment quality: the filesystem supervisor
 
 ## Reference implementation
 
-A complete supervisor implementation is available in the [agent7](https://github.com/KTCrisis/agent7) repository at `backend/app/services/supervisor/`.
+A complete supervisor implementation is available in the [agent7](https://github.com/KTCrisis/flux7-console) repository at `backend/app/services/supervisor/`.
 
 ### Features
 

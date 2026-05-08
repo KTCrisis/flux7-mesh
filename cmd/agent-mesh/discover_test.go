@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/KTCrisis/agent-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/registry"
 )
 
 func TestIsReadTool(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/config"
-	"github.com/KTCrisis/agent-mesh/mcp"
-	"github.com/KTCrisis/agent-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/mcp"
+	"github.com/KTCrisis/flux7-mesh/registry"
 )
 
 func runDiscover(args []string) {

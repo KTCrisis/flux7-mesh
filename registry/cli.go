@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/config"
 )
 
 // LoadCLI registers CLI tools into the registry.

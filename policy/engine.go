@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/KTCrisis/agent-mesh/config"
-	"github.com/KTCrisis/agent-mesh/internal/match"
+	"github.com/KTCrisis/flux7-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/internal/match"
 )
 
 // Decision is the result of a policy evaluation.

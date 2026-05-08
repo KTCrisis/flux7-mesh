@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/registry"
 )
 
 func TestValidateArgs_NoAllowlist(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/KTCrisis/agent-mesh/registry"
+	"github.com/KTCrisis/flux7-mesh/registry"
 )
 
 // Result holds the output of a CLI command execution.
