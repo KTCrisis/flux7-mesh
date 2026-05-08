@@ -41,3 +41,4 @@ state.db
 *.db-shm
 *.local.yaml
 policies/*.local.yaml
+dist/
