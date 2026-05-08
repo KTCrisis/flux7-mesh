@@ -1,6 +1,6 @@
-# Agent Mesh
+# flux7-mesh
 
-[![GitHub release](https://img.shields.io/github/v/release/KTCrisis/agent-mesh?style=flat-square&color=00bcd4)](https://github.com/KTCrisis/flux7-mesh/releases)
+[![GitHub release](https://img.shields.io/github/v/release/KTCrisis/flux7-mesh?style=flat-square&color=00bcd4)](https://github.com/KTCrisis/flux7-mesh/releases)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 
@@ -100,7 +100,7 @@ The agent sees a normal tool surface. Agent Mesh enforces policy and records tra
 ### Binary (recommended)
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/KTCrisis/agent-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
+VERSION=$(curl -s https://api.github.com/repos/KTCrisis/flux7-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
 
 # Linux amd64
 curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
