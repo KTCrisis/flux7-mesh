@@ -129,8 +129,8 @@ agent-mesh --version
 ### Python SDK
 
 ```bash
-pip install agent-mesh              # core client
-pip install agent-mesh[anthropic]   # with Claude API support
+pip install flux7-mesh              # core client
+pip install flux7-mesh[anthropic]   # with Claude API support
 ```
 
 Govern tool calls from any Python code — Claude API, LangChain, or plain HTTP:
@@ -541,7 +541,7 @@ agent-mesh/
 ├── exec/                  # Secure CLI execution (no shell, arg validation)
 ├── trace/                 # In-memory + JSONL + OTEL export
 ├── policies/              # Per-agent policy files (used with policy_dir)
-├── sdk/python/            # Python SDK (pip install agent-mesh)
+├── sdk/python/            # Python SDK (pip install flux7-mesh)
 ├── examples/              # Example configs (filesystem, petstore, travel, langchain)
 └── docs/                  # CLI tools guide, OTEL guide, supervisor protocol
 ```
@@ -575,7 +575,7 @@ go test ./... -race        # with race detector
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
 - [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
 - [x] `agent-mesh serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
-- [x] Python SDK (`pip install agent-mesh` — GovernedToolkit for Claude API tool_use, direct HTTP client)
+- [x] Python SDK (`pip install flux7-mesh` — GovernedToolkit for Claude API tool_use, direct HTTP client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery
 - [ ] Policy hot-reload

@@ -1,6 +1,6 @@
 """Example: governed tool use with the Claude API.
 
-Requires: pip install agent-mesh[anthropic]
+Requires: pip install flux7-mesh[anthropic]
 Requires: agent-mesh daemon running on localhost:9090
 """
 from agent_mesh import GovernedToolkit

@@ -5,8 +5,8 @@ Governance mesh for AI agent tool calls. Wraps any Python function with policy e
 ## Install
 
 ```bash
-pip install agent-mesh
-pip install agent-mesh[anthropic]  # with Claude API support
+pip install flux7-mesh
+pip install flux7-mesh[anthropic]  # with Claude API support
 ```
 
 ## Quick start
