@@ -90,7 +90,7 @@ When you connect tools directly to an AI agent, the agent gets unguarded access 
 Put Agent Mesh between the agent and its tools:
 
 ```bash
-claude mcp add flux7-mesh -- ./flux7-mesh --mcp --config config.yaml
+claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
 The agent sees a normal tool surface. Agent Mesh enforces policy and records traces on every call.
@@ -103,12 +103,12 @@ The agent sees a normal tool surface. Agent Mesh enforces policy and records tra
 VERSION=$(curl -s https://api.github.com/repos/KTCrisis/flux7-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
 
 # Linux amd64
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/flux7-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
-sudo mv flux7-mesh /usr/local/bin/
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/mesh7_${VERSION#v}_linux_amd64.tar.gz" | tar xz
+sudo mv mesh7 /usr/local/bin/
 
 # macOS Apple Silicon
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/flux7-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
-sudo mv flux7-mesh /usr/local/bin/
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/mesh7_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
+sudo mv mesh7 /usr/local/bin/
 ```
 
 All releases: [github.com/KTCrisis/flux7-mesh/releases](https://github.com/KTCrisis/flux7-mesh/releases)
@@ -120,10 +120,10 @@ Requires Go 1.24+:
 ```bash
 git clone https://github.com/KTCrisis/flux7-mesh.git
 cd flux7-mesh
-make install    # builds to ~/go/bin/flux7-mesh with version metadata
+make install    # builds to ~/go/bin/mesh7 with version metadata
 
-flux7-mesh --version
-# flux7-mesh v0.10.1 (827c457) built 2026-05-08T...
+mesh7 --version
+# mesh7 v0.10.1 (827c457) built 2026-05-08T...
 ```
 
 ### Python SDK
@@ -201,14 +201,14 @@ policies:
 Or auto-generate one:
 
 ```bash
-flux7-mesh discover --config config.yaml --generate-policy
-flux7-mesh discover --openapi https://petstore.swagger.io/v2/swagger.json --generate-policy
+mesh7 discover --config config.yaml --generate-policy
+mesh7 discover --openapi https://petstore.swagger.io/v2/swagger.json --generate-policy
 ```
 
 ### 2. Plug into Claude Code
 
 ```bash
-claude mcp add flux7-mesh -- flux7-mesh --mcp --config config.yaml
+claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
 ### 3. Use normally
@@ -463,7 +463,7 @@ External supervisor agents can poll `GET /approvals?status=pending`, evaluate wi
 ```bash
 mesh7 [flags]                           # run proxy (HTTP or MCP mode)
 mesh7 serve [flags]                     # run as persistent daemon
-flux7-mesh discover [flags]                  # discover tools + generate policy
+mesh7 discover [flags]                       # discover tools + generate policy
 mesh7 --version                         # print version
 ```
 
@@ -568,7 +568,7 @@ go test ./... -race        # with race detector
 - [x] Supervisor protocol (content isolation, injection detection)
 - [x] CLI tool governance (3 modes, secure exec)
 - [x] OpenAPI config field (persistent import)
-- [x] Dashboard UI (via [agent7](https://github.com/KTCrisis/flux7-console))
+- [x] Dashboard UI (via [flux7-console](https://github.com/KTCrisis/flux7-console))
 - [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/flux7-memory) as queryable facts)
 - [x] Auto-approve from mem7 (built-in Level 1 supervisor — queries past decisions, auto-approves routine patterns)
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
