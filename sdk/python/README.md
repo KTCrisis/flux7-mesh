@@ -22,9 +22,13 @@ mesh = AgentMesh("http://localhost:9090", agent="my-agent")
 tools = mesh.tools()
 health = mesh.health()
 
-# Call a tool through governance (policy + trace)
-decision = mesh.call_tool("filesystem.read_file", {"path": "/tmp/data.txt"})
+# Policy check only (POST /decide) — no execution
+decision = mesh.decide("filesystem.write_file", {"path": "/tmp/x"})
 print(decision.action)  # allow | deny | human_approval
+
+# Full proxy (POST /tool/{name}) — policy + execute + trace
+decision = mesh.call_tool("filesystem.read_file", {"path": "/tmp/data.txt"})
+print(decision.result)
 
 # Manage grants
 mesh.create_grant("filesystem.*", "30m")
@@ -75,7 +79,8 @@ agent-mesh serve --config config.yaml
 
 | Method | Description |
 |---|---|
-| `call_tool(name, args)` | Execute tool through governance |
+| `decide(name, args)` | Evaluate policy without executing |
+| `call_tool(name, args)` | Execute tool through governance (proxy) |
 | `tools()` | List available tools |
 | `approvals()` | List pending approvals |
 | `approve(id)` / `deny(id)` | Resolve approval |

@@ -123,7 +123,7 @@ cd agent-mesh
 make install    # builds to ~/go/bin/agent-mesh with version metadata
 
 agent-mesh --version
-# agent-mesh v0.8.5 (bee2a9e) built 2026-04-16T07:11:16Z
+# agent-mesh v0.10.1 (827c457) built 2026-05-08T...
 ```
 
 ### Python SDK
