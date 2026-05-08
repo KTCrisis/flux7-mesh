@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-mesh"
+version = "0.1.0"
+description = "Python SDK for agent-mesh — governance mesh for AI agent tool calls"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+
+[project.urls]
+Homepage = "https://github.com/KTCrisis/agent-mesh"
+Repository = "https://github.com/KTCrisis/agent-mesh"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_mesh"]
