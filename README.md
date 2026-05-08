@@ -126,6 +126,48 @@ agent-mesh --version
 # agent-mesh v0.8.5 (bee2a9e) built 2026-04-16T07:11:16Z
 ```
 
+### Python SDK
+
+```bash
+pip install agent-mesh              # core client
+pip install agent-mesh[anthropic]   # with Claude API support
+```
+
+Govern tool calls from any Python code — Claude API, LangChain, or plain HTTP:
+
+```python
+from agent_mesh import GovernedToolkit
+
+toolkit = GovernedToolkit(agent="my-agent")
+
+@toolkit.tool
+def get_weather(city: str) -> str:
+    """Get current weather for a city."""
+    return fetch_weather(city)
+
+# Generate tools[] for Claude API
+response = client.messages.create(
+    model="claude-sonnet-4-6",
+    tools=toolkit.schemas(),
+    messages=[...],
+)
+
+# Execute with governance (policy + trace)
+results = toolkit.process_response([b.model_dump() for b in response.content])
+```
+
+Or use the client directly:
+
+```python
+from agent_mesh import AgentMesh
+
+mesh = AgentMesh("http://localhost:9090", agent="my-agent")
+decision = mesh.call_tool("filesystem.write_file", {"path": "/tmp/x", "content": "hello"})
+print(decision.action)  # allow | deny | human_approval
+```
+
+See [sdk/python/](sdk/python/) for full docs and examples.
+
 ## Quick start
 
 ### 1. Write a config
@@ -498,6 +540,7 @@ agent-mesh/
 ├── exec/                  # Secure CLI execution (no shell, arg validation)
 ├── trace/                 # In-memory + JSONL + OTEL export
 ├── policies/              # Per-agent policy files (used with policy_dir)
+├── sdk/python/            # Python SDK (pip install agent-mesh)
 ├── examples/              # Example configs (filesystem, petstore, travel, langchain)
 └── docs/                  # CLI tools guide, OTEL guide, supervisor protocol
 ```
@@ -509,7 +552,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-307 tests across 15 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
+255 Go tests across 15 packages + 26 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
 
 ## Roadmap
 
@@ -531,6 +574,7 @@ go test ./... -race        # with race detector
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
 - [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
 - [x] `agent-mesh serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
+- [x] Python SDK (`pip install agent-mesh` — GovernedToolkit for Claude API tool_use, direct HTTP client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery
 - [ ] Policy hot-reload
