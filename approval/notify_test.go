@@ -44,7 +44,7 @@ func TestNotifyOnSubmit(t *testing.T) {
 	}
 }
 
-func TestCallbackOnResolve(t *testing.T) {
+func TestCallbackOnResolve_SSRFBlocked(t *testing.T) {
 	var mu sync.Mutex
 	var received []notifyPayload
 
@@ -59,25 +59,17 @@ func TestCallbackOnResolve(t *testing.T) {
 	defer srv.Close()
 
 	s := NewStore(5 * time.Second)
-	s.Notifier = NewNotifier("") // no notify URL — only callback
+	s.Notifier = NewNotifier("")
 
+	// Callback on localhost → SSRF protection rejects it
 	pa := s.Submit("claude", "gmail.send", "rule-1", nil, srv.URL)
-
 	s.Approve(pa.ID, "admin")
-
-	// Wait for async POST
 	time.Sleep(50 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(received) != 1 {
-		t.Fatalf("got %d callbacks, want 1", len(received))
-	}
-	if received[0].Event != "approved" {
-		t.Errorf("event = %q, want approved", received[0].Event)
-	}
-	if received[0].ResolvedBy != "admin" {
-		t.Errorf("resolved_by = %q, want admin", received[0].ResolvedBy)
+	if len(received) != 0 {
+		t.Fatalf("got %d callbacks, want 0 (SSRF protection blocks localhost)", len(received))
 	}
 }
 
@@ -98,7 +90,7 @@ func TestNotifyAndCallback(t *testing.T) {
 	s := NewStore(5 * time.Second)
 	s.Notifier = NewNotifier(srv.URL)
 
-	// Agent provides callback URL = same test server
+	// Agent provides callback on localhost → SSRF-blocked, only notifyURL fires
 	pa := s.Submit("claude", "write_file", "rule-1", nil, srv.URL)
 	time.Sleep(50 * time.Millisecond)
 
@@ -107,14 +99,13 @@ func TestNotifyAndCallback(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(received) != 2 {
-		t.Fatalf("got %d events, want 2 (pending + denied)", len(received))
+	// Only 1 event: the operator notifyURL fires (pending), but the
+	// agent callbackURL on localhost is blocked by SSRF protection.
+	if len(received) != 1 {
+		t.Fatalf("got %d events, want 1 (pending only — callback SSRF-blocked)", len(received))
 	}
 	if received[0].Event != "pending" {
 		t.Errorf("first event = %q, want pending", received[0].Event)
-	}
-	if received[1].Event != "denied" {
-		t.Errorf("second event = %q, want denied", received[1].Event)
 	}
 }
 
@@ -126,7 +117,7 @@ func TestNoNotifierNoPanic(t *testing.T) {
 	<-pa.Result
 }
 
-func TestCallbackOnTimeout(t *testing.T) {
+func TestCallbackOnTimeout_SSRFBlocked(t *testing.T) {
 	var mu sync.Mutex
 	var received []notifyPayload
 
@@ -143,17 +134,35 @@ func TestCallbackOnTimeout(t *testing.T) {
 	s := NewStore(50 * time.Millisecond)
 	s.Notifier = NewNotifier("")
 
+	// Agent-supplied callback on localhost → SSRF protection blocks it
 	s.Submit("claude", "tool", "r", nil, srv.URL)
 
-	// Wait for timeout + async POST
 	time.Sleep(150 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(received) != 1 {
-		t.Fatalf("got %d callbacks, want 1 (timeout)", len(received))
+	if len(received) != 0 {
+		t.Fatalf("got %d callbacks, want 0 (SSRF protection should block localhost)", len(received))
 	}
-	if received[0].Event != "timeout" {
-		t.Errorf("event = %q, want timeout", received[0].Event)
+}
+
+func TestSSRFCallbackValidation(t *testing.T) {
+	tests := []struct {
+		url  string
+		safe bool
+	}{
+		{"http://169.254.169.254/metadata", false},
+		{"http://127.0.0.1:8080/hook", false},
+		{"http://localhost:9090/callback", false},
+		{"http://10.0.0.1/internal", false},
+		{"http://192.168.1.1/admin", false},
+		{"ftp://example.com/file", false},
+		{"://bad", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := isSafeCallbackURL(tt.url); got != tt.safe {
+			t.Errorf("isSafeCallbackURL(%q) = %v, want %v", tt.url, got, tt.safe)
+		}
 	}
 }

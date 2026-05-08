@@ -744,6 +744,10 @@ func (s *Server) handleGrantCreate(args map[string]any) (any, *rpcError) {
 	if err != nil {
 		return nil, &rpcError{Code: -32602, Message: "invalid duration: " + err.Error()}
 	}
+	const maxGrantDuration = 24 * time.Hour
+	if dur > maxGrantDuration {
+		return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("duration exceeds maximum (%s)", maxGrantDuration)}
+	}
 	g := s.Handler.Grants.Add(s.AgentID, tools, "mcp:"+s.AgentID, dur)
 	slog.Info("grant created via MCP",
 		"id", g.ID, "agent", g.Agent, "tools", g.Tools, "duration", duration)

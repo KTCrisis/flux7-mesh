@@ -199,14 +199,16 @@ func (m *MemoryReader) search(tool, agentID string) (string, error) {
 }
 
 // countDecisions parses mem7 search results and counts approval/rejection decisions.
-// Matches on the value format written by MemoryWriter.WriteDecision:
+// Matches the exact value format written by MemoryWriter.WriteDecision:
 // "approved by X — agent:Y tool:Z" / "rejected by X — agent:Y tool:Z"
+// Uses a strict prefix match to prevent poisoning via injected text.
 func countDecisions(text string) (approved, rejected int) {
 	for _, line := range strings.Split(text, "\n") {
-		lower := strings.ToLower(line)
-		if strings.Contains(lower, "approved by") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "approved by ") && strings.Contains(lower, " — agent:") {
 			approved++
-		} else if strings.Contains(lower, "rejected by") {
+		} else if strings.HasPrefix(lower, "rejected by ") && strings.Contains(lower, " — agent:") {
 			rejected++
 		}
 	}

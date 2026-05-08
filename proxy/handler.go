@@ -215,7 +215,9 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check mem7 for past decisions (auto-approve routine patterns)
-	if decision.Action == "human_approval" && h.Approvals != nil {
+	// Skip auto-approve if injection detected in params — force human review.
+	injectionRisk := supervisor.DetectInjection(req.Params)
+	if decision.Action == "human_approval" && h.Approvals != nil && !injectionRisk {
 		if res := h.Approvals.TryAutoResolve(agentID, toolName); res != nil {
 			slog.Info("mem7 auto-approve",
 				"agent", agentID, "tool", toolName, "reason", res.Reasoning)
@@ -223,6 +225,10 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 			decision.Rule = "supervisor:mem7"
 			decision.Reason = res.Reasoning
 		}
+	}
+	if injectionRisk {
+		slog.Warn("injection risk detected, forcing human review",
+			"agent", agentID, "tool", toolName)
 	}
 
 	if decision.Action == "human_approval" {
@@ -415,7 +421,7 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if decision.Action == "human_approval" && h.Approvals != nil {
+	if decision.Action == "human_approval" && h.Approvals != nil && !supervisor.DetectInjection(req.Arguments) {
 		if res := h.Approvals.TryAutoResolve(agentID, toolName); res != nil {
 			decision.Action = "allow"
 			decision.Rule = "supervisor:mem7"
