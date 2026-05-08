@@ -140,6 +140,11 @@ func main() {
 	if cfg.Memory.URL != "" {
 		approvals.MemoryWriter = approval.NewMemoryWriter(cfg.Memory.URL, cfg.Memory.Token)
 		slog.Info("memory writer configured — decisions will be persisted", "url", cfg.Memory.URL)
+		if cfg.Supervisor.IsAutoApproveEnabled() {
+			approvals.MemoryReader = approval.NewMemoryReader(cfg.Memory.URL, cfg.Memory.Token, cfg.Supervisor.GetMinApprovals())
+			slog.Info("memory reader configured — auto-approve from past decisions",
+				"url", cfg.Memory.URL, "min_approvals", cfg.Supervisor.GetMinApprovals())
+		}
 	}
 	slog.Info("approval store ready", "timeout", approvalTimeout)
 	if cfg.Supervisor.IsEnabled() {
@@ -234,7 +239,7 @@ func main() {
 	}
 
 	// 8a. MCP Streamable HTTP handler (available in both modes)
-	mcpHTTPHandler := mcp.NewHTTPHandler(reg, pol, traces, approvals, handler, mcpManager, cfg.Supervisor.IsEnabled())
+	mcpHTTPHandler := mcp.NewHTTPHandler(reg, pol, traces, approvals, handler, mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents)
 	handler.MCPHTTPHandler = mcpHTTPHandler
 
 	// 8. MCP mode or HTTP mode
@@ -252,15 +257,16 @@ func main() {
 		}()
 
 		server := &mcp.Server{
-			Registry:       reg,
-			Policy:         pol,
-			Traces:         traces,
-			Approvals:      approvals,
-			Handler:        handler,
-			MCPManager:     mcpManager,
-			AgentID:        *mcpAgent,
-			SessionID:      *mcpSessionID,
-			SupervisorMode: cfg.Supervisor.IsEnabled(),
+			Registry:         reg,
+			Policy:           pol,
+			Traces:           traces,
+			Approvals:        approvals,
+			Handler:          handler,
+			MCPManager:       mcpManager,
+			AgentID:          *mcpAgent,
+			SessionID:        *mcpSessionID,
+			SupervisorMode:   cfg.Supervisor.IsEnabled(),
+			SupervisorAgents: cfg.Supervisor.SupervisorAgents,
 		}
 		if err := server.Run(); err != nil {
 			slog.Error("MCP server failed", "error", err)

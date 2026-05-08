@@ -212,6 +212,17 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check mem7 for past decisions (auto-approve routine patterns)
+	if decision.Action == "human_approval" && h.Approvals != nil {
+		if res := h.Approvals.TryAutoResolve(agentID, toolName); res != nil {
+			slog.Info("mem7 auto-approve",
+				"agent", agentID, "tool", toolName, "reason", res.Reasoning)
+			decision.Action = "allow"
+			decision.Rule = "supervisor:mem7"
+			decision.Reason = res.Reasoning
+		}
+	}
+
 	if decision.Action == "human_approval" {
 		if h.Approvals == nil {
 			// Fallback: no approval store configured

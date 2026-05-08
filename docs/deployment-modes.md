@@ -38,17 +38,21 @@ claude mcp add agent-mesh -- agent-mesh --mcp --config config.yaml
 
 ## Config 2: Solo dev + Claude + supervisor (passive)
 
-Claude manages agent-mesh. The supervisor connects to Claude's instance on `:9090` and auto-resolves approvals.
+Claude manages agent-mesh. Two layers of auto-resolve handle routine approvals before they reach a human.
 
 ```
 Claude Code ──stdio──> agent-mesh :9090 ──> tools
                            │
-                    supervisor (poll GET /approvals)
+                    Level 1: built-in (mem7 lookup, ~100ms)
+                    ├── 3+ past approvals → auto-approve
+                    └── else → escalate to Level 1+
+                           │
+                    Level 1+: supervisor (poll GET /approvals)
                     ├── rules → approve/deny (0ms)
                     └── ollama → evaluate (~20s)
 ```
 
-Claude sees tool calls that block briefly (~2s for rules, ~20s for Ollama) then return results. No approval UI, no manual intervention for routine operations.
+The built-in auto-approve (Level 1) fires before the approval queue — routine patterns never block. If it can't resolve, the external supervisor (Level 1+) evaluates with rules and LLM. If both escalate, the human decides.
 
 **Setup:**
 

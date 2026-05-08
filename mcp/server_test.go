@@ -752,3 +752,73 @@ func TestUpstreamSchemaPassthrough(t *testing.T) {
 		t.Errorf("theme lost enum on re-export: %s", themeJSON)
 	}
 }
+
+func TestSupervisorModeHidesApprovalTools(t *testing.T) {
+	s := testServer()
+	s.SupervisorMode = true
+	s.Approvals = approval.NewStore(30 * time.Second)
+
+	// tools/list should not contain approval tools
+	resp := s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+	data, _ := json.Marshal(resp.Result)
+	if strings.Contains(string(data), "approval.resolve") {
+		t.Error("approval.resolve should be hidden in supervisor mode")
+	}
+
+	// tools/call should reject approval tools
+	resp = s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: map[string]any{
+		"name": "approval.pending", "arguments": map[string]any{},
+	}})
+	if resp.Error == nil {
+		t.Error("approval.pending should be rejected in supervisor mode")
+	}
+}
+
+func TestSupervisorAgentsWhitelist(t *testing.T) {
+	s := testServer()
+	s.SupervisorMode = true
+	s.SupervisorAgents = []string{"supervisor-*"}
+	s.AgentID = "supervisor-claude"
+	s.Approvals = approval.NewStore(30 * time.Second)
+
+	// Whitelisted agent should see approval tools
+	resp := s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+	data, _ := json.Marshal(resp.Result)
+	if !strings.Contains(string(data), "approval.resolve") {
+		t.Error("supervisor agent should see approval.resolve")
+	}
+	if !strings.Contains(string(data), "approval.pending") {
+		t.Error("supervisor agent should see approval.pending")
+	}
+
+	// Whitelisted agent should be able to call approval tools
+	resp = s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: map[string]any{
+		"name": "approval.pending", "arguments": map[string]any{},
+	}})
+	if resp.Error != nil {
+		t.Errorf("supervisor agent should access approval.pending, got error: %s", resp.Error.Message)
+	}
+}
+
+func TestSupervisorAgentsNonMatchBlocked(t *testing.T) {
+	s := testServer()
+	s.SupervisorMode = true
+	s.SupervisorAgents = []string{"supervisor-*"}
+	s.AgentID = "worker-agent"
+	s.Approvals = approval.NewStore(30 * time.Second)
+
+	// Non-matching agent should NOT see approval tools
+	resp := s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+	data, _ := json.Marshal(resp.Result)
+	if strings.Contains(string(data), "approval.resolve") {
+		t.Error("non-supervisor agent should not see approval.resolve")
+	}
+
+	// Non-matching agent should be rejected
+	resp = s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: map[string]any{
+		"name": "approval.resolve", "arguments": map[string]any{"id": "abc", "decision": "approve"},
+	}})
+	if resp.Error == nil {
+		t.Error("non-supervisor agent should be rejected for approval.resolve")
+	}
+}

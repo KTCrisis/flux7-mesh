@@ -39,10 +39,13 @@ type OpenAPIConfig struct {
 	BackendURL string `yaml:"backend_url,omitempty"`
 }
 
-// SupervisorConfig controls supervisor mode and content isolation.
+// SupervisorConfig controls supervisor mode, content isolation, and auto-approval.
 type SupervisorConfig struct {
-	Enabled       *bool `yaml:"enabled"`        // when true, hide approval.* tools from agents
-	ExposeContent *bool `yaml:"expose_content"`
+	Enabled         *bool    `yaml:"enabled"`          // when true, hide approval.* tools from agents
+	ExposeContent   *bool    `yaml:"expose_content"`
+	AutoApprove     *bool    `yaml:"auto_approve"`     // enable mem7-based auto-approval (default true)
+	MinApprovals    int      `yaml:"min_approvals"`    // min past approvals for auto-approve (default 3)
+	SupervisorAgents []string `yaml:"supervisor_agents"` // agent IDs (glob) allowed to see approval tools in supervisor mode
 }
 
 // IsEnabled returns whether supervisor mode is active.
@@ -63,6 +66,24 @@ func (s SupervisorConfig) ShouldExposeContent() bool {
 		return true
 	}
 	return *s.ExposeContent
+}
+
+// IsAutoApproveEnabled returns whether mem7-based auto-approval is active.
+// Defaults to true — active when memory.url is configured.
+// Set to false to disable even when mem7 is available.
+func (s SupervisorConfig) IsAutoApproveEnabled() bool {
+	if s.AutoApprove == nil {
+		return true
+	}
+	return *s.AutoApprove
+}
+
+// GetMinApprovals returns the threshold for auto-approval. Default 3.
+func (s SupervisorConfig) GetMinApprovals() int {
+	if s.MinApprovals <= 0 {
+		return 3
+	}
+	return s.MinApprovals
 }
 
 // CLIToolConfig declares a CLI binary to wrap as governed tools.

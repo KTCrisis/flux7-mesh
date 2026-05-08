@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/KTCrisis/agent-mesh/approval"
+	"github.com/KTCrisis/agent-mesh/internal/match"
 	"github.com/KTCrisis/agent-mesh/policy"
 	"github.com/KTCrisis/agent-mesh/proxy"
 	"github.com/KTCrisis/agent-mesh/registry"
@@ -102,15 +103,16 @@ func (p MCPProp) MarshalJSON() ([]byte, error) {
 
 // Server runs the MCP stdio protocol.
 type Server struct {
-	Registry       *registry.Registry
-	Policy         *policy.Engine
-	Traces         *trace.Store
-	Approvals      *approval.Store
-	Handler        *proxy.Handler
-	MCPManager     *Manager
-	AgentID        string // agent ID for policy evaluation in MCP mode
-	SessionID      string // optional session ID (set externally or auto-generated at initialize)
-	SupervisorMode bool   // when true, hide approval.* virtual tools from agents
+	Registry         *registry.Registry
+	Policy           *policy.Engine
+	Traces           *trace.Store
+	Approvals        *approval.Store
+	Handler          *proxy.Handler
+	MCPManager       *Manager
+	AgentID          string   // agent ID for policy evaluation in MCP mode
+	SessionID        string   // optional session ID (set externally or auto-generated at initialize)
+	SupervisorMode   bool     // when true, hide approval.* virtual tools from agents
+	SupervisorAgents []string // agent ID globs allowed to see approval tools in supervisor mode
 }
 
 // Run starts the MCP server on stdin/stdout.
@@ -240,8 +242,8 @@ func (s *Server) handleToolsList() map[string]any {
 		})
 	}
 
-	// Append virtual approval tools (unless supervisor mode — supervisor handles approvals)
-	if !s.SupervisorMode {
+	// Append virtual approval tools (hidden in supervisor mode, unless agent is a declared supervisor)
+	if !s.SupervisorMode || match.GlobAny(s.SupervisorAgents, s.AgentID) {
 		mcpTools = append(mcpTools, MCPTool{
 			Name:        "approval.resolve",
 			Description: "Approve or deny a pending approval request",
@@ -321,12 +323,12 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 	// Virtual tools — handled before registry lookup, no policy evaluation
 	switch toolName {
 	case "approval.resolve":
-		if s.SupervisorMode {
+		if s.SupervisorMode && !match.GlobAny(s.SupervisorAgents, s.AgentID) {
 			return nil, &rpcError{Code: -32601, Message: "approval.resolve is disabled — supervisor mode is active, approvals are handled by the external supervisor"}
 		}
 		return s.handleApprovalResolve(arguments)
 	case "approval.pending":
-		if s.SupervisorMode {
+		if s.SupervisorMode && !match.GlobAny(s.SupervisorAgents, s.AgentID) {
 			return nil, &rpcError{Code: -32601, Message: "approval.pending is disabled — supervisor mode is active"}
 		}
 		return s.handleApprovalPending()
@@ -371,6 +373,17 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 				{"type": "text", "text": fmt.Sprintf("Policy denied: %s", decision.Reason)},
 			},
 		}, nil
+	}
+
+	// Check mem7 for past decisions (auto-approve routine patterns)
+	if decision.Action == "human_approval" && s.Approvals != nil {
+		if res := s.Approvals.TryAutoResolve(s.AgentID, toolName); res != nil {
+			slog.Info("mem7 auto-approve",
+				"agent", s.AgentID, "tool", toolName, "reason", res.Reasoning)
+			decision.Action = "allow"
+			decision.Rule = "supervisor:mem7"
+			decision.Reason = res.Reasoning
+		}
 	}
 
 	if decision.Action == "human_approval" {

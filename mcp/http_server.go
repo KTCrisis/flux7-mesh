@@ -17,13 +17,14 @@ import (
 // HTTPHandler serves the MCP Streamable HTTP transport (POST/DELETE /mcp).
 // Each Mcp-Session-Id maps to an isolated Server with its own agent context.
 type HTTPHandler struct {
-	Registry       *registry.Registry
-	Policy         *policy.Engine
-	Traces         *trace.Store
-	Approvals      *approval.Store
-	Handler        *proxy.Handler
-	MCPManager     *Manager
-	SupervisorMode bool
+	Registry         *registry.Registry
+	Policy           *policy.Engine
+	Traces           *trace.Store
+	Approvals        *approval.Store
+	Handler          *proxy.Handler
+	MCPManager       *Manager
+	SupervisorMode   bool
+	SupervisorAgents []string
 
 	mu       sync.Mutex
 	sessions map[string]*Server
@@ -38,16 +39,18 @@ func NewHTTPHandler(
 	handler *proxy.Handler,
 	mcpMgr *Manager,
 	supervisorMode bool,
+	supervisorAgents []string,
 ) *HTTPHandler {
 	return &HTTPHandler{
-		Registry:       reg,
-		Policy:         pol,
-		Traces:         traces,
-		Approvals:      approvals,
-		Handler:        handler,
-		MCPManager:     mcpMgr,
-		SupervisorMode: supervisorMode,
-		sessions:       make(map[string]*Server),
+		Registry:         reg,
+		Policy:           pol,
+		Traces:           traces,
+		Approvals:        approvals,
+		Handler:          handler,
+		MCPManager:       mcpMgr,
+		SupervisorMode:   supervisorMode,
+		SupervisorAgents: supervisorAgents,
+		sessions:         make(map[string]*Server),
 	}
 }
 
@@ -139,15 +142,16 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 	}
 
 	srv := &Server{
-		Registry:       h.Registry,
-		Policy:         h.Policy,
-		Traces:         h.Traces,
-		Approvals:      h.Approvals,
-		Handler:        h.Handler,
-		MCPManager:     h.MCPManager,
-		AgentID:        agentID,
-		SessionID:      sessionID,
-		SupervisorMode: h.SupervisorMode,
+		Registry:         h.Registry,
+		Policy:           h.Policy,
+		Traces:           h.Traces,
+		Approvals:        h.Approvals,
+		Handler:          h.Handler,
+		MCPManager:       h.MCPManager,
+		AgentID:          agentID,
+		SessionID:        sessionID,
+		SupervisorMode:   h.SupervisorMode,
+		SupervisorAgents: h.SupervisorAgents,
 	}
 
 	// SessionID is set during HandleRequest("initialize") if empty.

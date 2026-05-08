@@ -300,9 +300,13 @@ Files are loaded alphabetically after inline `policies:`. Duplicate names produc
 supervisor:
   enabled: true          # hide approval tools from agents
   expose_content: false  # redact raw params → structural metadata
+  supervisor_agents:     # agent IDs (glob) allowed to see approval tools
+    - "supervisor-*"
 ```
 
 When enabled, `approval.resolve` and `approval.pending` are hidden from agents — only an external supervisor can resolve approvals. See [docs/supervisor-protocol.md](docs/supervisor-protocol.md).
+
+Agents matching `supervisor_agents` globs are whitelisted: they see and can call approval tools even in supervisor mode. This enables a Managed Agent (e.g. Claude via MCP Streamable HTTP) to act as a cloud supervisor — connecting to `POST /mcp` with `Authorization: Bearer agent:supervisor-claude` and resolving approvals with Claude's judgment.
 
 ### Memory integration
 
@@ -314,7 +318,17 @@ memory:
   token: ""                     # optional Bearer token
 ```
 
-When configured, every approval resolve (approve, deny, timeout) is written to mem7 as a fact with tags `[decision, approved|denied, <tool>, agent:<id>]`. This enables the supervisor to check past decisions before escalating to a human.
+When configured, every approval resolve (approve, deny, timeout) is written to mem7 as a fact with tags `[decision, approved|denied, <tool>, agent:<id>]`.
+
+**Auto-approve from past decisions** — when `memory.url` is set, agent-mesh queries mem7 before submitting to the approval queue. If a tool+agent pattern has 3+ consistent approvals with 0 rejections, it is auto-approved (traced as `supervisor:mem7`). Governance gets less intrusive over time without getting less safe.
+
+```yaml
+supervisor:
+  auto_approve: true     # default true when memory.url is set
+  min_approvals: 3       # threshold for auto-approve (default 3)
+```
+
+The auto-approve is a pre-filter (Level 1). If it can't resolve, the request proceeds to the external supervisor (if running) or human. If mem7 is down, the request is escalated — never blocked.
 
 ### Other settings
 
@@ -490,7 +504,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-220+ tests across 14 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
+238+ tests across 14 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
 
 ## Roadmap
 
@@ -507,6 +521,7 @@ go test ./... -race        # with race detector
 - [x] OpenAPI config field (persistent import)
 - [x] Dashboard UI (via [agent7](https://github.com/KTCrisis/agent7))
 - [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/mem7) as queryable facts)
+- [x] Auto-approve from mem7 (built-in Level 1 supervisor — queries past decisions, auto-approves routine patterns)
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
 - [ ] Durable state (approvals, grants, rate limits persisted across restarts)
 - [ ] `agent-mesh serve` daemon mode (persistent, multi-client)

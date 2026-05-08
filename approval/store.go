@@ -69,6 +69,33 @@ type Store struct {
 	timeout      time.Duration
 	Notifier     *Notifier
 	MemoryWriter *MemoryWriter
+	MemoryReader *MemoryReader
+}
+
+// TryAutoResolve checks mem7 for past decisions and returns an auto-resolution
+// if the pattern is clear (enough consistent approvals). Returns nil if the
+// request should be escalated to human/supervisor.
+// When auto-approved, the decision is also written to mem7 for future queries.
+func (s *Store) TryAutoResolve(agentID, tool string) *Resolution {
+	if s == nil || s.MemoryReader == nil {
+		return nil
+	}
+	ar := s.MemoryReader.AutoResolve(tool, agentID)
+	if ar.Action != "approve" {
+		return nil
+	}
+	res := &Resolution{
+		Status:     StatusApproved,
+		ResolvedBy: "supervisor:mem7",
+		ResolvedAt: time.Now().UTC(),
+		Reasoning:  ar.Reason,
+		Confidence: ar.Confidence,
+	}
+	s.MemoryWriter.WriteDecision(
+		&PendingApproval{ID: newID(), AgentID: agentID, Tool: tool},
+		*res,
+	)
+	return res
 }
 
 // NewStore creates an approval store with the given default timeout.
