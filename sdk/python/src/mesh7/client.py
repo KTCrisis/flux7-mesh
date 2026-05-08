@@ -122,14 +122,33 @@ class AgentMesh:
             for t in items
         ]
 
-    def approvals(self) -> list[dict[str, Any]]:
-        """List pending approvals."""
-        resp = self._session.get(f"{self._url}/approvals", timeout=self._timeout)
+    def approvals(self, status: str | None = None, tool: str | None = None) -> list[dict[str, Any]]:
+        """List approvals, optionally filtered by status and/or tool glob."""
+        params: dict[str, str] = {}
+        if status:
+            params["status"] = status
+        if tool:
+            params["tool"] = tool
+        resp = self._session.get(
+            f"{self._url}/approvals", params=params, timeout=self._timeout
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def pending(self, tool_scope: str | None = None) -> list[dict[str, Any]]:
+        """List pending approvals, optionally filtered by tool glob."""
+        return self.approvals(status="pending", tool=tool_scope)
+
+    def approval_detail(self, approval_id: str) -> dict[str, Any]:
+        """Get approval detail with recent traces and active grants context."""
+        resp = self._session.get(
+            f"{self._url}/approvals/{approval_id}", timeout=self._timeout
+        )
         resp.raise_for_status()
         return resp.json()
 
     def approve(self, approval_id: str) -> bool:
-        """Approve a pending request."""
+        """Approve a pending request (simple, no metadata)."""
         resp = self._session.post(
             f"{self._url}/approvals/{approval_id}/approve",
             timeout=self._timeout,
@@ -137,9 +156,33 @@ class AgentMesh:
         return resp.status_code == 200
 
     def deny(self, approval_id: str) -> bool:
-        """Deny a pending request."""
+        """Deny a pending request (simple, no metadata)."""
         resp = self._session.post(
             f"{self._url}/approvals/{approval_id}/deny",
+            timeout=self._timeout,
+        )
+        return resp.status_code == 200
+
+    def resolve(
+        self,
+        approval_id: str,
+        action: str,
+        *,
+        resolved_by: str = "",
+        reasoning: str = "",
+        confidence: float = 0.0,
+    ) -> bool:
+        """Resolve an approval with full metadata (reasoning, confidence)."""
+        body: dict[str, Any] = {}
+        if resolved_by:
+            body["resolved_by"] = resolved_by
+        if reasoning:
+            body["reasoning"] = reasoning
+        if confidence > 0:
+            body["confidence"] = confidence
+        resp = self._session.post(
+            f"{self._url}/approvals/{approval_id}/{action}",
+            json=body if body else None,
             timeout=self._timeout,
         )
         return resp.status_code == 200
