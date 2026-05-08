@@ -328,7 +328,7 @@ supervisor:
   min_approvals: 3       # threshold for auto-approve (default 3)
 ```
 
-The auto-approve is a pre-filter (Level 1). If it can't resolve, the request proceeds to the external supervisor (if running) or human. If mem7 is down, the request is escalated — never blocked.
+The auto-approve is a pre-filter (Level 1). If it can't resolve, the request proceeds to the external supervisor (if running) or human. If mem7 is down, the request is escalated — never blocked. See [docs/mem7-auto-approve.md](docs/mem7-auto-approve.md) for a step-by-step example.
 
 ### Other settings
 
