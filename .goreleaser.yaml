@@ -1,14 +1,14 @@
 version: 2
 
-project_name: flux7-mesh
+project_name: mesh7
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - main: ./cmd/flux7-mesh
-    binary: flux7-mesh
+  - main: ./cmd/mesh7
+    binary: mesh7
     env:
       - CGO_ENABLED=0
     goos:
