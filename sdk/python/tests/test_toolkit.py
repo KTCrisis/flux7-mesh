@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_mesh import GovernedToolkit
-from agent_mesh.client import Action, AgentMesh, Decision
+from mesh7 import GovernedToolkit
+from mesh7.client import Action, AgentMesh, Decision
 
 
 @pytest.fixture

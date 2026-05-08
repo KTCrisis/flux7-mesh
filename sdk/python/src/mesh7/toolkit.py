@@ -2,7 +2,7 @@
 
 Usage::
 
-    from agent_mesh import GovernedToolkit
+    from mesh7 import GovernedToolkit
 
     toolkit = GovernedToolkit(agent="my-agent")
 
@@ -23,7 +23,7 @@ import inspect
 import json
 from typing import Any, Callable, get_type_hints
 
-from agent_mesh.client import Action, AgentMesh, AgentMeshError, Decision
+from mesh7.client import Action, AgentMesh, AgentMeshError, Decision
 
 
 def _python_type_to_json(t: Any) -> str:

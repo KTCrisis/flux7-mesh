@@ -2,7 +2,7 @@
 
 Usage::
 
-    from agent_mesh import AgentMesh
+    from mesh7 import AgentMesh
 
     mesh = AgentMesh("http://localhost:9090", agent="my-agent")
     decision = mesh.decide("filesystem.write_file", {"path": "/tmp/x"})

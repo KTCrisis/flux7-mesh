@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_mesh import AgentMesh, Decision
-from agent_mesh.client import Action, AgentMeshError, Tool
+from mesh7 import AgentMesh, Decision
+from mesh7.client import Action, AgentMeshError, Tool
 
 
 @pytest.fixture

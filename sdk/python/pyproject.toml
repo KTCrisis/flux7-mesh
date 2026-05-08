@@ -19,4 +19,4 @@ Homepage = "https://github.com/KTCrisis/flux7-mesh"
 Repository = "https://github.com/KTCrisis/flux7-mesh"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_mesh"]
+packages = ["src/mesh7"]

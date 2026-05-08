@@ -14,7 +14,7 @@ pip install flux7-mesh[anthropic]  # with Claude API support
 ### Direct client
 
 ```python
-from agent_mesh import AgentMesh
+from mesh7 import AgentMesh
 
 mesh = AgentMesh("http://localhost:9090", agent="my-agent")
 
@@ -38,7 +38,7 @@ mesh.revoke_grant("grant-id")
 ### GovernedToolkit (Claude API)
 
 ```python
-from agent_mesh import GovernedToolkit
+from mesh7 import GovernedToolkit
 
 toolkit = GovernedToolkit(agent="my-agent")
 

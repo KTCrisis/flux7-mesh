@@ -136,7 +136,7 @@ pip install flux7-mesh[anthropic]   # with Claude API support
 Govern tool calls from any Python code — Claude API, LangChain, or plain HTTP:
 
 ```python
-from agent_mesh import GovernedToolkit
+from mesh7 import GovernedToolkit
 
 toolkit = GovernedToolkit(agent="my-agent")
 
@@ -159,7 +159,7 @@ results = toolkit.process_response([b.model_dump() for b in response.content])
 Or use the client directly:
 
 ```python
-from agent_mesh import AgentMesh
+from mesh7 import AgentMesh
 
 mesh = AgentMesh("http://localhost:9090", agent="my-agent")
 decision = mesh.call_tool("filesystem.write_file", {"path": "/tmp/x", "content": "hello"})
