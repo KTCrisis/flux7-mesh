@@ -430,7 +430,7 @@ agent-mesh --version                         # print version
 | `--openapi` | | OpenAPI spec URL (ephemeral, for quick tests) |
 | `--backend` | | Backend base URL override |
 | `--port` | from config or `9090` | Port override |
-| `--mcp` | `false` | MCP mode (stdio JSON-RPC instead of HTTP) |
+| `--mcp` | `false` | MCP mode (stdio JSON-RPC — auto-proxies to daemon if running) |
 | `--mcp-agent` | `claude` | Agent ID for MCP-mode policy evaluation |
 | `--mcp-session-id` | auto-generated | Session ID for MCP traces |
 
@@ -506,7 +506,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-303 tests across 15 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
+307 tests across 15 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
 
 ## Roadmap
 
@@ -526,6 +526,7 @@ go test ./... -race        # with race detector
 - [x] Auto-approve from mem7 (built-in Level 1 supervisor — queries past decisions, auto-approves routine patterns)
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
+- [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
 - [ ] `agent-mesh serve` daemon mode (persistent, multi-client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery

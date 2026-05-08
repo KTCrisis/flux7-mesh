@@ -68,6 +68,16 @@ func main() {
 		cfg.Port = *port
 	}
 
+	// Early exit: proxy to running daemon in MCP mode
+	if *mcpMode && daemonRunning(cfg.Port) {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+		if err := runStdioProxy(cfg.Port, *mcpAgent); err != nil {
+			slog.Error("proxy failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// 2. Build registry
 	reg := registry.New()
 
