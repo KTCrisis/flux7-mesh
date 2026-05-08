@@ -2,6 +2,7 @@ package grant
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ func (g *Grant) Remaining() time.Duration {
 type Store struct {
 	mu     sync.RWMutex
 	grants []*Grant
+	db     *sql.DB
 }
 
 func NewStore() *Store {
@@ -57,6 +59,7 @@ func (s *Store) Add(agent, tools, grantedBy string, duration time.Duration) *Gra
 	s.mu.Lock()
 	s.grants = append(s.grants, g)
 	s.mu.Unlock()
+	s.dbSave(g)
 	return g
 }
 
@@ -88,6 +91,7 @@ func (s *Store) Revoke(id string) bool {
 	for i, g := range s.grants {
 		if g.ID == id || (len(id) >= 4 && len(g.ID) >= len(id) && g.ID[:len(id)] == id) {
 			s.grants = append(s.grants[:i], s.grants[i+1:]...)
+			s.dbDelete(g.ID)
 			return true
 		}
 	}

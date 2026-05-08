@@ -2,6 +2,7 @@ package approval
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -67,10 +68,14 @@ type Store struct {
 	mu           sync.RWMutex
 	pending      map[string]*PendingApproval
 	timeout      time.Duration
+	db           *sql.DB
 	Notifier     *Notifier
 	MemoryWriter *MemoryWriter
 	MemoryReader *MemoryReader
 }
+
+// SetDB attaches a SQLite database for durable persistence.
+func (s *Store) SetDB(db *sql.DB) { s.db = db }
 
 // TryAutoResolve checks mem7 for past decisions and returns an auto-resolution
 // if the pattern is clear (enough consistent approvals). Returns nil if the
@@ -134,31 +139,32 @@ func (s *Store) Submit(agentID, tool, policyRule string, params map[string]any, 
 	s.pending[pa.ID] = pa
 	s.mu.Unlock()
 
-	// Notify webhook (new pending → human)
+	s.dbSave(pa)
 	s.Notifier.OnSubmit(pa)
-
-	// Timeout goroutine
-	go func() {
-		time.Sleep(s.timeout)
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if pa.Status != StatusPending {
-			return // already resolved
-		}
-		pa.Status = StatusTimeout
-		pa.ResolvedAt = time.Now().UTC()
-		res := Resolution{
-			Status:     StatusTimeout,
-			ResolvedBy: "system:timeout",
-			ResolvedAt: pa.ResolvedAt,
-		}
-		pa.Result <- res
-		// Callback agent on timeout too
-		s.Notifier.OnResolve(pa, res)
-		s.MemoryWriter.WriteDecision(pa, res)
-	}()
+	go s.timeoutAfter(pa, s.timeout)
 
 	return pa
+}
+
+// timeoutAfter waits for duration then expires the approval if still pending.
+func (s *Store) timeoutAfter(pa *PendingApproval, d time.Duration) {
+	time.Sleep(d)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if pa.Status != StatusPending {
+		return
+	}
+	pa.Status = StatusTimeout
+	pa.ResolvedAt = time.Now().UTC()
+	res := Resolution{
+		Status:     StatusTimeout,
+		ResolvedBy: "system:timeout",
+		ResolvedAt: pa.ResolvedAt,
+	}
+	pa.Result <- res
+	s.Notifier.OnResolve(pa, res)
+	s.MemoryWriter.WriteDecision(pa, res)
+	s.dbUpdate(pa)
 }
 
 var (
@@ -195,10 +201,9 @@ func (s *Store) Resolve(id string, status Status, opts ResolveOpts) error {
 		Confidence: opts.Confidence,
 	}
 	pa.Result <- res
-	// Callback agent (if X-Callback-URL was set)
 	s.Notifier.OnResolve(pa, res)
-	// Persist decision to mem7 (if configured)
 	s.MemoryWriter.WriteDecision(pa, res)
+	s.dbUpdate(pa)
 	return nil
 }
 

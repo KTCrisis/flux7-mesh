@@ -21,6 +21,7 @@ import (
 	"github.com/KTCrisis/agent-mesh/proxy"
 	"github.com/KTCrisis/agent-mesh/ratelimit"
 	"github.com/KTCrisis/agent-mesh/registry"
+	"github.com/KTCrisis/agent-mesh/storage"
 	"github.com/KTCrisis/agent-mesh/trace"
 )
 
@@ -151,6 +152,32 @@ func main() {
 		slog.Info("supervisor mode enabled — approval.resolve hidden from agents")
 	}
 
+	// 5b. Build grant store
+	grants := grant.NewStore()
+
+	// 5c. Durable storage (SQLite)
+	if cfg.StoragePath != "" {
+		stateDB, err := storage.Open(cfg.StoragePath)
+		if err != nil {
+			slog.Error("failed to open state database", "path", cfg.StoragePath, "error", err)
+			os.Exit(1)
+		}
+		defer stateDB.Close()
+		approvals.SetDB(stateDB)
+		grants.SetDB(stateDB)
+		if n, err := approvals.LoadAll(); err != nil {
+			slog.Error("failed to load approvals", "error", err)
+		} else if n > 0 {
+			slog.Info("approvals restored from disk", "count", n)
+		}
+		if n, err := grants.LoadAll(); err != nil {
+			slog.Error("failed to load grants", "error", err)
+		} else if n > 0 {
+			slog.Info("grants restored from disk", "count", n)
+		}
+		slog.Info("durable state ready", "path", cfg.StoragePath)
+	}
+
 	// 6. Build rate limiter
 	limiter := ratelimit.New()
 	for _, p := range cfg.Policies {
@@ -165,9 +192,8 @@ func main() {
 		}
 	}
 
-	// 7. Build grant store
-	grants := grant.NewStore()
-	slog.Info("grant store ready")
+	// 7. Build grant store (created before DB wiring above)
+	// grants already created above
 
 	// 8. Register CLI tools
 	if len(cfg.CLITools) > 0 {

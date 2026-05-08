@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	Port         int               `yaml:"port"`
+	StoragePath  string            `yaml:"storage_path"` // SQLite DB for durable state (approvals, grants)
 	TraceFile    string            `yaml:"trace_file"`
 	OTELEndpoint string            `yaml:"otel_endpoint"` // "stdout" or "http://localhost:4318" (OTLP HTTP)
 	Approval     ApprovalConfig    `yaml:"approval"`

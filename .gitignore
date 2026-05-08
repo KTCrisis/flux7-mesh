@@ -36,5 +36,8 @@ docs/positioning.md
 docs/agent-landscape.md
 traces.jsonl
 traces-*.jsonl
+state.db
+*.db-wal
+*.db-shm
 *.local.yaml
 policies/*.local.yaml

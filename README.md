@@ -334,6 +334,7 @@ The auto-approve is a pre-filter (Level 1). If it can't resolve, the request pro
 
 ```yaml
 port: 9090                                   # HTTP port (default 9090)
+storage_path: state.db                       # SQLite durable state (approvals, grants survive restarts)
 trace_file: traces.jsonl                     # JSONL persistence
 otel_endpoint: /path/to/traces-otel.jsonl    # or "stdout" or "http://localhost:4318"
 approval:
@@ -488,6 +489,7 @@ agent-mesh/
 ├── mcp/                   # MCP client/server/transport (stdio + SSE + streamable HTTP)
 ├── approval/              # Channel-based approval store with timeout
 ├── grant/                 # Temporal grants (TTL-based sudo)
+├── storage/               # SQLite durable state (approvals, grants survive restarts)
 ├── ratelimit/             # Sliding window + loop detection
 ├── supervisor/            # Content isolation + injection detection
 ├── exec/                  # Secure CLI execution (no shell, arg validation)
@@ -504,7 +506,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-238+ tests across 14 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
+303 tests across 15 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
 
 ## Roadmap
 
@@ -523,7 +525,7 @@ go test ./... -race        # with race detector
 - [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/mem7) as queryable facts)
 - [x] Auto-approve from mem7 (built-in Level 1 supervisor — queries past decisions, auto-approves routine patterns)
 - [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
-- [ ] Durable state (approvals, grants, rate limits persisted across restarts)
+- [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
 - [ ] `agent-mesh serve` daemon mode (persistent, multi-client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery
