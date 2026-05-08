@@ -155,6 +155,69 @@ Add a supervisor and you get Config 2 with extra agents — everything goes thro
 
 ---
 
+## Config 8: Anthropic Managed Agents (cloud, MCP Streamable HTTP)
+
+Cloud-hosted agents connect to your agent-mesh over the internet via MCP Streamable HTTP.
+
+```
+Anthropic cloud
+├── Managed Agent (coordinator)
+│   ├── sub-agent: reviewer
+│   ├── sub-agent: tester
+│   └── all use mcp_toolset "mesh"
+│
+└── MCP connector ── POST /mcp ──> agent-mesh (your server, public URL)
+                                       │
+                                  policies, traces, mem7
+                                       │
+                                  upstream MCP servers
+```
+
+**Setup:**
+
+```python
+# Anthropic SDK (Python)
+agent = client.beta.agents.create(
+    name="Governed Assistant",
+    model="claude-opus-4-7",
+    mcp_servers=[{
+        "type": "url",
+        "name": "mesh",
+        "url": "https://mesh.example.com/mcp",
+    }],
+    tools=[
+        {"type": "agent_toolset_20260401"},
+        {"type": "mcp_toolset", "mcp_server_name": "mesh",
+         "default_config": {"permission_policy": {"type": "always_allow"}}},
+    ],
+)
+```
+
+Auth via vault (static bearer):
+
+```python
+vault = client.beta.vaults.create(display_name="mesh-credentials")
+client.beta.vaults.credentials.create(
+    vault_id=vault.id,
+    display_name="agent-mesh token",
+    auth={
+        "type": "static_bearer",
+        "mcp_server_url": "https://mesh.example.com/mcp",
+        "token": "agent:my-managed-agent",
+    },
+)
+```
+
+agent-mesh extracts the agent ID from `Authorization: Bearer agent:<id>` and applies per-agent policies.
+
+**Networking:** agent-mesh must be accessible from Anthropic's cloud. Options:
+- Dev: Tailscale funnel or ngrok → `localhost:9090`
+- Prod: deploy agent-mesh on a VPS or cloud host
+
+**Permission policies:** Set `always_allow` on the Managed Agent side — let agent-mesh handle governance. Double-layer approval (Managed Agents `always_ask` + agent-mesh `human_approval`) works but adds friction.
+
+---
+
 ## Configs that don't work
 
 ### Config 6: Claude + supervisor (active spawn)
@@ -206,7 +269,9 @@ Do you use Claude/Cursor?
        │
        ├─ Want auto-approve / overnight runs ───→ Config 3 (supervisor standalone)
        │
-       └─ Just HTTP proxy ─────────────────────→ Config 4 (standalone)
+       ├─ Just HTTP proxy ─────────────────────→ Config 4 (standalone)
+       │
+       └─ Anthropic Managed Agents (cloud) ─→ Config 8 (MCP Streamable HTTP)
 ```
 
 ## Component lifecycle
@@ -248,6 +313,7 @@ This solves both Config 6 (port conflict) and Config 2's limitation (mesh dies w
 | Config 3: Active supervisor | Done |
 | Config 4: Standalone HTTP | Done |
 | Config 5: Shared mesh | Done |
+| Config 8: Managed Agents (MCP Streamable HTTP) | Done (v0.9.0) |
 | `supervisor.enabled` (hide approval tools) | Done |
 | `agent-mesh serve` (daemon) | Not yet |
 | `agent-mesh connect` (MCP-to-HTTP proxy) | Not yet |

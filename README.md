@@ -9,7 +9,7 @@ Open-source sidecar proxy between AI agents and their tools — policy, human ap
 
 One binary. One YAML config. Fail closed by default.
 
-Works with Claude Code, Cursor, LangChain, CrewAI, or any agent that uses HTTP, MCP, or CLI tools.
+Works with Claude Code, Cursor, Anthropic Managed Agents, LangChain, CrewAI, or any agent that uses HTTP, MCP, or CLI tools.
 
 ## Table of contents
 
@@ -63,9 +63,12 @@ flowchart LR
         O2["traces-otel.jsonl"]
     end
 
-    A1 -- MCP --> Mesh
+    A4["Anthropic Managed Agents"]
+
+    A1 -- "MCP stdio" --> Mesh
     A2 -- HTTP --> Mesh
     A3 -- HTTP --> Mesh
+    A4 -- "MCP streamable HTTP" --> Mesh
 
     FWD --> U1
     FWD --> U2
@@ -76,7 +79,7 @@ flowchart LR
 ```
 
 **Import:** OpenAPI specs (URL or file) · MCP servers (stdio + SSE) · CLI binaries
-**Export:** MCP server (stdio) · HTTP proxy (`:port`) · OTLP traces
+**Export:** MCP server (stdio) · MCP Streamable HTTP (`POST /mcp`) · HTTP proxy (`:port`) · OTLP traces
 
 ## The problem
 
@@ -437,6 +440,8 @@ Set `MESH_URL` to override the default `http://localhost:9090`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/tool/{name}` | Proxy a tool call through policy |
+| `POST` | `/mcp` | MCP Streamable HTTP transport (JSON-RPC) |
+| `DELETE` | `/mcp` | Terminate MCP HTTP session |
 | `GET` | `/tools` | List all registered tools |
 | `GET` | `/mcp-servers` | List connected MCP servers |
 | `GET` | `/traces` | Query traces (`?agent=...&tool=...`) |
@@ -466,7 +471,7 @@ agent-mesh/
 ├── registry/              # Tool registry (OpenAPI + MCP + CLI imports)
 ├── policy/                # Rule evaluation (globs, conditions, fail-closed)
 ├── proxy/                 # HTTP handler (auth → rate limit → policy → forward → trace)
-├── mcp/                   # MCP client/server/transport (stdio + SSE)
+├── mcp/                   # MCP client/server/transport (stdio + SSE + streamable HTTP)
 ├── approval/              # Channel-based approval store with timeout
 ├── grant/                 # Temporal grants (TTL-based sudo)
 ├── ratelimit/             # Sliding window + loop detection
@@ -485,7 +490,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-211 tests across 13 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
+220+ tests across 14 packages covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, and injection detection.
 
 ## Roadmap
 
@@ -502,6 +507,7 @@ go test ./... -race        # with race detector
 - [x] OpenAPI config field (persistent import)
 - [x] Dashboard UI (via [agent7](https://github.com/KTCrisis/agent7))
 - [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/mem7) as queryable facts)
+- [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
 - [ ] Durable state (approvals, grants, rate limits persisted across restarts)
 - [ ] `agent-mesh serve` daemon mode (persistent, multi-client)
 - [ ] Operator auth (separate identity from agent Bearer)

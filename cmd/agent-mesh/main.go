@@ -233,6 +233,10 @@ func main() {
 		slog.Info("MCP upstream servers connected", "count", len(mcpManager.All()))
 	}
 
+	// 8a. MCP Streamable HTTP handler (available in both modes)
+	mcpHTTPHandler := mcp.NewHTTPHandler(reg, pol, traces, approvals, handler, mcpManager, cfg.Supervisor.IsEnabled())
+	handler.MCPHTTPHandler = mcpHTTPHandler
+
 	// 8. MCP mode or HTTP mode
 	if *mcpMode {
 		// MCP: JSON-RPC over stdio — logs go to stderr to keep stdout clean
@@ -268,6 +272,7 @@ func main() {
 		slog.Info("endpoints",
 			"tool_call", fmt.Sprintf("POST http://localhost%s/tool/{name}", addr),
 			"list_tools", fmt.Sprintf("GET  http://localhost%s/tools", addr),
+			"mcp_http", fmt.Sprintf("POST http://localhost%s/mcp", addr),
 			"approvals", fmt.Sprintf("GET  http://localhost%s/approvals", addr),
 			"mcp_servers", fmt.Sprintf("GET  http://localhost%s/mcp-servers", addr),
 			"traces", fmt.Sprintf("GET  http://localhost%s/traces", addr),

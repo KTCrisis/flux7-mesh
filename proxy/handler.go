@@ -58,6 +58,7 @@ type Handler struct {
 	MCPForwarder  MCPForwarder
 	CLIRunner     *meshexec.Runner
 	SupervisorCfg config.SupervisorConfig
+	MCPHTTPHandler http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
 	// Build info (populated from main.go ldflags-injected vars).
 	Version   string
@@ -111,6 +112,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleVersion(w, r)
 	case r.Method == "GET" && r.URL.Path == "/metrics":
 		h.handleMetrics(w, r)
+	case r.URL.Path == "/mcp" && h.MCPHTTPHandler != nil:
+		h.MCPHTTPHandler.ServeHTTP(w, r)
 	default:
 		http.NotFound(w, r)
 	}

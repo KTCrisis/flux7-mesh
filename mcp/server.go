@@ -118,6 +118,38 @@ func (s *Server) Run() error {
 	return s.Serve(os.Stdin, os.Stdout)
 }
 
+// HandleRequest dispatches a single JSON-RPC request and returns the response.
+// For notifications (no ID, e.g. "notifications/initialized"), the returned
+// response has a zero JSONRPC field — callers should check this and skip
+// writing a response (stdio) or return 202 (HTTP).
+func (s *Server) HandleRequest(req rpcRequest) rpcResponse {
+	slog.Debug("MCP request", "method", req.Method, "id", req.ID)
+
+	var resp rpcResponse
+	resp.JSONRPC = "2.0"
+	resp.ID = req.ID
+
+	switch req.Method {
+	case "initialize":
+		if s.SessionID == "" {
+			s.SessionID = trace.NewID()
+		}
+		slog.Info("MCP session started", "session_id", s.SessionID)
+		resp.Result = s.handleInitialize()
+	case "notifications/initialized":
+		return rpcResponse{}
+	case "tools/list":
+		resp.Result = s.handleToolsList()
+	case "tools/call":
+		resp.Result, resp.Error = s.handleToolsCall(req.Params)
+	case "ping":
+		resp.Result = map[string]any{}
+	default:
+		resp.Error = &rpcError{Code: -32601, Message: fmt.Sprintf("Method not found: %s", req.Method)}
+	}
+	return resp
+}
+
 // Serve runs the MCP server on the given reader/writer.
 func (s *Server) Serve(r io.Reader, w io.Writer) error {
 	slog.Info("MCP server starting", "agent", s.AgentID, "tools", len(s.Registry.All()))
@@ -140,31 +172,11 @@ func (s *Server) Serve(r io.Reader, w io.Writer) error {
 			continue
 		}
 
-		slog.Debug("MCP request", "method", req.Method, "id", req.ID)
+		resp := s.HandleRequest(req)
 
-		var resp rpcResponse
-		resp.JSONRPC = "2.0"
-		resp.ID = req.ID
-
-		switch req.Method {
-		case "initialize":
-			// Auto-generate session ID for this MCP connection if not set externally
-			if s.SessionID == "" {
-				s.SessionID = trace.NewID()
-			}
-			slog.Info("MCP session started", "session_id", s.SessionID)
-			resp.Result = s.handleInitialize()
-		case "notifications/initialized":
-			// Client ack — no response needed
+		// Notifications produce a zero-value response — skip writing.
+		if resp.JSONRPC == "" {
 			continue
-		case "tools/list":
-			resp.Result = s.handleToolsList()
-		case "tools/call":
-			resp.Result, resp.Error = s.handleToolsCall(req.Params)
-		case "ping":
-			resp.Result = map[string]any{}
-		default:
-			resp.Error = &rpcError{Code: -32601, Message: fmt.Sprintf("Method not found: %s", req.Method)}
 		}
 
 		s.writeResponse(w, resp)
