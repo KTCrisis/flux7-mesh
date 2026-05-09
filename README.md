@@ -336,6 +336,29 @@ rules:
 
 Files are loaded alphabetically after inline `policies:`. Duplicate names produce an error.
 
+### Policy hot-reload
+
+Policies are reloaded automatically when files change — no restart required. The daemon watches:
+
+- `config.yaml` (inline `policies:` section)
+- `policy_dir/` (all `*.yaml` files)
+
+Changes are debounced (200ms) and validated before applying. If the new YAML is invalid, the current policies are kept and the error is logged. Rate limits defined in policies are also reloaded.
+
+```
+# Add a new agent policy at runtime — takes effect in <1s
+echo 'name: temp-agent
+agent: "temp"
+rules:
+  - tools: ["weather.*"]
+    action: allow' > policies/temp.yaml
+
+# Remove it — reverts immediately
+rm policies/temp.yaml
+```
+
+Hot-reload covers policies and rate limits only. Changes to MCP servers, CLI tools, or OpenAPI specs require a restart.
+
 ### Supervisor mode
 
 ```yaml
