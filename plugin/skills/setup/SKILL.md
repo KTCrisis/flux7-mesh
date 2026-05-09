@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Generate a starter config.yaml config for agent-mesh
+description: Generate a starter config.yaml config for flux7-mesh
 user-invocable: true
 argument-hint: "[template]"
 allowed-tools:
@@ -9,7 +9,7 @@ allowed-tools:
   - Bash
 ---
 
-Generate a starter agent-mesh configuration.
+Generate a starter flux7-mesh configuration.
 
 Templates available:
 - `minimal` (default) — single agent, basic allow/deny

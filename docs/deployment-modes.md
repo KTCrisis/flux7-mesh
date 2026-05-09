@@ -1,6 +1,6 @@
 # Deployment Modes
 
-Agent-mesh supports different configurations depending on who connects and how.
+flux7-mesh supports different configurations depending on who connects and how.
 
 ## Configuration matrix
 
@@ -14,7 +14,7 @@ Agent-mesh supports different configurations depending on who connects and how.
 | **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | **Port conflict** |
 | **7** | 2 Claude sessions | MCP stdio × 2 | Both spawn | - | **Port conflict** |
 
-Configs 1–5 work today. Configs 6–7 have a port conflict that requires either passive mode or the future daemon mode.
+Configs 1–5 work out of the box. Configs 6–7 have a port conflict — use daemon mode (`mesh7 serve`) to solve them.
 
 ---
 
@@ -28,12 +28,12 @@ Claude Code ──stdio──> flux7-mesh ──> filesystem, gmail, ollama...
                       :9090 HTTP (background, for mesh CLI / traces)
 ```
 
-Claude launches flux7-mesh as an MCP subprocess. Flux7-mesh launches upstream MCP servers, applies policies, records traces. When Claude quits, everything stops cleanly.
+Claude launches mesh7 as an MCP subprocess. mesh7 launches upstream MCP servers, applies policies, records traces. When Claude quits, everything stops cleanly.
 
 **Setup:** Just add flux7-mesh as an MCP server in Claude Code:
 
 ```bash
-claude mcp add flux7-mesh -- flux7-mesh --mcp --config config.yaml
+claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
 ## Config 2: Solo dev + Claude + supervisor (passive)
@@ -60,9 +60,9 @@ The built-in auto-approve (Level 1) fires before the approval queue — routine 
 # Terminal 1: Claude (launches flux7-mesh automatically)
 claude
 
-# Terminal 2: Supervisor
-cd ~/agent7
-python -m backend.app.services.supervisor --config supervisor.local.yaml
+# Terminal 2: Supervisor (flux7-supervisor / sup7)
+cd ~/flux7-supervisor
+python -m sup7 --config supervisor.local.yaml
 ```
 
 With `supervisor.enabled: true` in the flux7-mesh config, `approval.resolve` and `approval.pending` tools are hidden from Claude. Tool calls block until the supervisor resolves them.
@@ -102,8 +102,8 @@ supervisor (always alive)
 **Setup:**
 
 ```bash
-cd ~/agent7
-python -m backend.app.services.supervisor --config supervisor.yaml
+cd ~/flux7-supervisor
+python -m sup7 --config supervisor.yaml
 ```
 
 With `mesh_process.enabled: true`, the supervisor spawns flux7-mesh on startup, monitors health, and restarts it on crash.
@@ -113,7 +113,7 @@ supervisor:
   mesh_url: http://localhost:9090
   mesh_process:
     enabled: true
-    command: flux7-mesh
+    command: mesh7
     config: /path/to/config.yaml
 ```
 
@@ -138,7 +138,7 @@ Agent (HTTP) ──────┘
 **Setup:**
 
 ```bash
-flux7-mesh --config config.yaml
+mesh7 --config config.yaml
 ```
 
 Any HTTP client can call `POST /tool/{name}`, query traces, manage approvals. Works with LangChain, CrewAI, custom scripts, cron jobs.
@@ -283,17 +283,17 @@ Do you use Claude/Cursor?
 | Component | Who starts it | Who stops it | Persists across sessions |
 |-----------|--------------|-------------|------------------------|
 | **Ollama** | System daemon | System | Yes |
-| **flux7-mesh** | Claude (config 1/2/5) or supervisor (config 3) | Dies with parent | No (unless daemon mode) |
+| **mesh7** | Claude (config 1/2/5), supervisor (config 3), or `mesh7 serve` (daemon) | Dies with parent (embedded) or persistent (daemon) | Yes with daemon mode |
 | **Upstream MCP servers** | flux7-mesh (subprocesses) | Die with flux7-mesh | No |
 | **Supervisor** | User (terminal) | User (Ctrl+C) | Yes (as long as terminal lives) |
 | **Claude Code** | User | User | No |
 
-## Future: daemon mode
+## Daemon mode (v0.9.4+)
 
-The ideal architecture — a single persistent flux7-mesh instance shared by everyone:
+A single persistent mesh7 instance shared by everyone:
 
 ```
-                    flux7-mesh serve (daemon, persistent)
+                    mesh7 serve (daemon, persistent)
                     ┌─────────────────────────────────────┐
 Claude ──connect──> │                                     │──> tools
 Agent B ───HTTP───> │  registry · policy · approval       │
@@ -303,12 +303,12 @@ Agent C ───HTTP───> │  trace · grants · rate limiting     │
                             supervisor (poll)
 ```
 
-Two new subcommands:
+Two subcommands:
 
-- **`flux7-mesh serve`** — run as a persistent daemon (HTTP + manages upstream MCP servers)
-- **`flux7-mesh connect --url http://localhost:9090`** — thin MCP stdio proxy for Claude Code
+- **`mesh7 serve`** — run as a persistent daemon (HTTP + manages upstream MCP servers)
+- **`mesh7 --mcp`** — auto-detects a running daemon and proxies to it (MCP stdio for Claude Code)
 
-This solves both Config 6 (port conflict) and Config 2's limitation (mesh dies with Claude). Claude uses `connect` instead of spawning the full flux7-mesh. The supervisor manages the daemon lifecycle.
+This solves both Config 6 (port conflict) and Config 2's limitation (mesh dies with Claude). Claude uses the auto-proxy instead of spawning the full mesh7. The supervisor manages the daemon lifecycle.
 
 | Feature | Status |
 |---------|--------|
@@ -319,5 +319,5 @@ This solves both Config 6 (port conflict) and Config 2's limitation (mesh dies w
 | Config 5: Shared mesh | Done |
 | Config 8: Managed Agents (MCP Streamable HTTP) | Done (v0.9.0) |
 | `supervisor.enabled` (hide approval tools) | Done |
-| `flux7-mesh serve` (daemon) | Not yet |
-| `flux7-mesh connect` (MCP-to-HTTP proxy) | Not yet |
+| `mesh7 serve` (daemon) | Done (v0.9.4) |
+| `mesh7 --mcp` (auto-proxy to daemon) | Done (v0.9.4) |

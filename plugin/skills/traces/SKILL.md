@@ -1,13 +1,13 @@
 ---
 name: traces
-description: Query and display recent agent-mesh traces (tool calls, policy decisions, latency)
+description: Query and display recent flux7-mesh traces (tool calls, policy decisions, latency)
 user-invocable: true
 argument-hint: "[agent] [tool] [limit]"
 allowed-tools:
   - Bash
 ---
 
-Query agent-mesh traces.
+Query flux7-mesh traces.
 
 Arguments:
 - $0 = agent filter (optional, default: all)

@@ -5,11 +5,11 @@ user-invocable: true
 argument-hint: "[approve|deny] [id]"
 allowed-tools:
   - Bash
-  - mcp__agent-mesh__approval_pending
-  - mcp__agent-mesh__approval_resolve
+  - mcp__mesh7__approval_pending
+  - mcp__mesh7__approval_resolve
 ---
 
-Manage agent-mesh approval requests.
+Manage flux7-mesh approval requests.
 
 If no arguments: list all pending approvals using the approval_pending tool.
 

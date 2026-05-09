@@ -7,7 +7,7 @@ Install mesh7, write your first policy, and make a governed tool call. Five minu
 === "Go install"
 
     ```bash
-    go install github.com/KTCrisis/flux7-mesh/cmd/flux7-mesh@latest
+    go install github.com/KTCrisis/flux7-mesh/cmd/mesh7@latest
     ```
 
 === "Binary (Linux amd64)"

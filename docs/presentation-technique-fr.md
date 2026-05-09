@@ -1,8 +1,8 @@
-# Agent Mesh — Documentation technique
+# flux7-mesh (mesh7) — Documentation technique
 
 ## En une phrase
 
-Agent Mesh est un **proxy sidecar** qui s'insère entre les agents IA et leurs outils pour ajouter politique d'accès, approbation humaine et traçabilité — sans modifier le code des agents.
+flux7-mesh est un **proxy sidecar** qui s'insère entre les agents IA et leurs outils pour ajouter politique d'accès, approbation humaine et traçabilité — sans modifier le code des agents.
 
 Un binaire. Un fichier YAML. Politique fermée par défaut.
 
@@ -21,10 +21,10 @@ C'est l'équivalent de donner un accès root à un script non audité.
 
 ## La solution
 
-Agent Mesh se place entre l'agent et ses outils. L'agent voit une surface d'outils normale. Le proxy applique les règles et trace chaque appel.
+flux7-mesh se place entre l'agent et ses outils. L'agent voit une surface d'outils normale. Le proxy applique les règles et trace chaque appel.
 
 ```
-Agent IA ──> agent-mesh ──> filesystem (lecture: autorisé, écriture: approbation, suppression: interdit)
+Agent IA ──> mesh7 ──> filesystem (lecture: autorisé, écriture: approbation, suppression: interdit)
                        ├──> gmail      (lecture: autorisé, envoi: approbation, suppression: interdit)
                        ├──> météo      (autorisé)
                        └──> terraform  (plan: autorisé, apply: approbation, destroy: interdit)
@@ -34,7 +34,7 @@ Agent IA ──> agent-mesh ──> filesystem (lecture: autorisé, écriture: a
 
 ### Analogie
 
-C'est le même pattern qu'**Envoy** dans le monde des microservices. Envoy se place entre les services pour ajouter observabilité, authentification et rate limiting sans modifier le code des services. Agent Mesh fait la même chose pour les agents IA et leurs outils.
+C'est le même pattern qu'**Envoy** dans le monde des microservices. Envoy se place entre les services pour ajouter observabilité, authentification et rate limiting sans modifier le code des services. flux7-mesh fait la même chose pour les agents IA et leurs outils.
 
 | Service mesh (Envoy) | Agent mesh |
 |----------------------|------------|
@@ -48,7 +48,7 @@ C'est le même pattern qu'**Envoy** dans le monde des microservices. Envoy se pl
 ## Architecture
 
 ```
-                       agent-mesh (sidecar proxy)
+                       mesh7 (sidecar proxy)
                 ┌──────────────────────────────────────────┐
                 │                                          │
 Agent IA ──────>│  Registre ──> Politique ──> Forward ─────│──> Outils
@@ -76,11 +76,11 @@ Chaque appel d'outil suit le même chemin, quel que soit le transport :
 
 ## Sources d'outils
 
-Agent Mesh importe des outils depuis 3 types de sources et les expose de manière unifiée.
+flux7-mesh importe des outils depuis 3 types de sources et les expose de manière unifiée.
 
 ### MCP (Model Context Protocol)
 
-Le standard émergent pour connecter des agents IA à des outils. Agent Mesh se connecte en tant que client MCP à des serveurs existants (stdio ou SSE) et les gouverne.
+Le standard émergent pour connecter des agents IA à des outils. flux7-mesh se connecte en tant que client MCP à des serveurs existants (stdio ou SSE) et les gouverne.
 
 ```yaml
 mcp_servers:
@@ -105,17 +105,17 @@ Chaque outil est nommé `<serveur>.<outil>` : `filesystem.write_file`, `gmail.gm
 
 ### OpenAPI / REST
 
-Agent Mesh lit un spec OpenAPI (Swagger) et transforme chaque endpoint en outil gouverné.
+flux7-mesh lit un spec OpenAPI (Swagger) et transforme chaque endpoint en outil gouverné.
 
 ```bash
-agent-mesh --openapi https://api.example.com/swagger.json --config config.yaml
+mesh7 --openapi https://api.example.com/swagger.json --config config.yaml
 ```
 
 Un `POST /pets` devient l'outil `addPet`, un `GET /pets/{id}` devient `getPetById`. Les paramètres (path, query, body) sont extraits automatiquement.
 
 ### CLI (binaires locaux)
 
-Agent Mesh enveloppe n'importe quel binaire CLI (terraform, kubectl, docker, gh, aws) derrière les mêmes politiques et traces. Trois modes :
+flux7-mesh enveloppe n'importe quel binaire CLI (terraform, kubectl, docker, gh, aws) derrière les mêmes politiques et traces. Trois modes :
 
 | Mode | Comportement | Exemple |
 |------|-------------|---------|
@@ -148,9 +148,10 @@ Sécurité : exécution directe sans shell (`exec.Command`), liste blanche d'arg
 
 ### Export
 
-Agent Mesh expose tous les outils gouvernés via :
+flux7-mesh expose tous les outils gouvernés via :
 
 - **MCP stdio** — pour Claude Code, Cursor, ou tout client MCP
+- **MCP Streamable HTTP** (`POST /mcp`) — pour Anthropic Managed Agents et clients distants
 - **HTTP API** — pour LangChain, CrewAI, scripts Python, cURL
 
 Tous les modes composent : importer REST + MCP + CLI, appliquer une politique unifiée, exporter via MCP ou HTTP.
@@ -243,11 +244,11 @@ Quand une politique exige `human_approval`, le flux est **non-bloquant** pour l'
 
 ```
 Claude appelle filesystem.write_file
-  → agent-mesh : "Approbation requise (id: a1b2c3d4)"
+  → mesh7 : "Approbation requise (id: a1b2c3d4)"
   → Claude montre le message à l'utilisateur
   → L'utilisateur approuve dans le chat
   → Claude appelle approval.resolve(id: a1b2c3d4, decision: approve)
-  → agent-mesh rejoue l'appel original vers le backend
+  → mesh7 rejoue l'appel original vers le backend
   → Résultat retourné à Claude
 ```
 
@@ -355,7 +356,7 @@ Pour les cas multi-agents ou les pipelines autonomes, un agent **supervisor exte
 ### Principe
 
 ```
-Agent de travail ──> agent-mesh ──> file d'approbation
+Agent de travail ──> mesh7 ──> file d'approbation
                                          │
                               Supervisor (poll toutes les 2s)
                               ├── Règles rapides (0ms)
@@ -390,13 +391,12 @@ L'objectif n'est pas de remplacer l'humain mais de **protéger son attention** p
 
 ### Implémentation de référence
 
-Une implémentation Python complète est disponible dans le projet [agent7](https://github.com/KTCrisis/flux7-console) :
+Une implémentation Python complète est disponible dans le projet [flux7-supervisor](https://github.com/KTCrisis/flux7-supervisor) (sup7) :
 
-- Moteur de règles (fast path, 0ms)
-- Fallback LLM via Ollama (configurable, ~20s)
-- Gestion du cycle de vie agent-mesh (spawn, health check, restart)
-- Mémoire persistante des décisions via memory-mcp
-- 44 tests
+- Agent standalone L1 avec 3 providers LLM (Ollama, Anthropic, Claude Code MCP)
+- Moteur de règles (fast path, 0ms) + fallback LLM (~20s)
+- Mémoire persistante des décisions via mem7
+- 49 tests
 
 ---
 
@@ -404,9 +404,9 @@ Une implémentation Python complète est disponible dans le projet [agent7](http
 
 ### OWASP Agentic Top 10
 
-Agent Mesh couvre 6 des 10 risques du [OWASP Top 10 pour les systèmes agentiques](https://owasp.org/www-project-top-10-for-large-language-model-applications/) :
+flux7-mesh couvre 6 des 10 risques du [OWASP Top 10 pour les systèmes agentiques](https://owasp.org/www-project-top-10-for-large-language-model-applications/) :
 
-| Risque OWASP | Couverture agent-mesh |
+| Risque OWASP | Couverture mesh7 |
 |-------------|----------------------|
 | Excessive Agency | Politique d'accès par outil, fail-closed |
 | Tool Misuse | Rate limiting, détection de boucle |
@@ -432,15 +432,15 @@ Les outils CLI sont exécutés sans shell (`exec.Command` direct) avec :
 ### Dev solo + CLI IA (recommandé pour commencer)
 
 ```
-Claude Code ──stdio──> agent-mesh ──> outils
+Claude Code ──stdio──> mesh7 ──> outils
 ```
 
-L'agent lance agent-mesh automatiquement. L'utilisateur approuve dans le chat. Zéro config supplémentaire.
+L'agent lance mesh7 automatiquement. L'utilisateur approuve dans le chat. Zéro config supplémentaire.
 
 ### Dev solo + supervisor passif
 
 ```
-Claude Code ──stdio──> agent-mesh :9090 ──> outils
+Claude Code ──stdio──> mesh7 :9090 ──> outils
                            │
                     supervisor (poll)
 ```
@@ -450,7 +450,7 @@ Le supervisor résout automatiquement les approbations routinières. L'utilisate
 ### Multi-agent partagé
 
 ```
-Claude Code ──stdio──> agent-mesh :9090 ──> outils
+Claude Code ──stdio──> mesh7 :9090 ──> outils
                            │
 Agent Python ───HTTP───────┘
 ```
@@ -460,14 +460,14 @@ Plusieurs agents partagent la même instance, les mêmes politiques, les mêmes 
 ### Pipeline autonome (sans humain)
 
 ```
-supervisor ──spawn──> agent-mesh :9090 ──> outils
+supervisor ──spawn──> mesh7 :9090 ──> outils
                            │
 scripts/cron ───HTTP───────┘
 ```
 
-Le supervisor gère le cycle de vie d'agent-mesh et résout toutes les approbations. Pour les batch jobs, CI/CD, exécutions overnight.
+Le supervisor gère le cycle de vie d'mesh7 et résout toutes les approbations. Pour les batch jobs, CI/CD, exécutions overnight.
 
-Voir [docs/deployment-modes.md](deployment-modes.md) pour la matrice complète des 7 configurations.
+Voir [docs/deployment-modes.md](deployment-modes.md) pour la matrice complète des 8 configurations + daemon mode.
 
 ---
 
@@ -476,26 +476,26 @@ Voir [docs/deployment-modes.md](deployment-modes.md) pour la matrice complète d
 ### Binaire précompilé
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/KTCrisis/agent-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
+VERSION=$(curl -s https://api.github.com/repos/KTCrisis/flux7-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
 
 # Linux (amd64)
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_linux_amd64.tar.gz" | tar xz
-sudo mv agent-mesh /usr/local/bin/
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/mesh7_${VERSION#v}_linux_amd64.tar.gz" | tar xz
+sudo mv mesh7 /usr/local/bin/
 
 # macOS (Apple Silicon)
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/agent-mesh_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
-sudo mv agent-mesh /usr/local/bin/
+curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/mesh7_${VERSION#v}_darwin_arm64.tar.gz" | tar xz
+sudo mv mesh7 /usr/local/bin/
 ```
 
 ### Depuis les sources
 
 ```bash
 git clone https://github.com/KTCrisis/flux7-mesh.git
-cd agent-mesh
-go build -o agent-mesh .
+cd flux7-mesh
+go build -o mesh7 ./cmd/mesh7
 ```
 
-Requiert Go 1.24+. Aucune dépendance externe (seul `gopkg.in/yaml.v3`).
+Requiert Go 1.25+. Deux dépendances : `gopkg.in/yaml.v3` + `modernc.org/sqlite` (pure Go, zero CGO).
 
 ## Démarrage rapide
 
@@ -503,21 +503,21 @@ Requiert Go 1.24+. Aucune dépendance externe (seul `gopkg.in/yaml.v3`).
 
 ```bash
 # Depuis des serveurs MCP existants
-agent-mesh discover --config config.yaml --generate-policy
+mesh7 discover --config config.yaml --generate-policy
 
 # Depuis un spec OpenAPI
-agent-mesh discover --openapi https://api.example.com/swagger.json --generate-policy > config.yaml
+mesh7 discover --openapi https://api.example.com/swagger.json --generate-policy > config.yaml
 ```
 
 ### 2. Brancher sur Claude Code
 
 ```bash
-claude mcp add agent-mesh -- agent-mesh --mcp --config config.yaml
+claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
 ### 3. Utiliser normalement
 
-L'agent voit les outils. Agent Mesh applique les règles. Chaque appel est tracé.
+L'agent voit les outils. flux7-mesh applique les règles. Chaque appel est tracé.
 
 ---
 
@@ -525,21 +525,21 @@ L'agent voit les outils. Agent Mesh applique les règles. Chaque appel est trac�
 
 | Caractéristique | Détail |
 |----------------|--------|
-| **Langage** | Go 1.24 |
-| **Dépendance unique** | `gopkg.in/yaml.v3` |
+| **Langage** | Go 1.25 |
+| **Dépendances** | `gopkg.in/yaml.v3` + `modernc.org/sqlite` (pure Go, zero CGO) |
 | **Taille du binaire** | ~9 Mo (compilation statique) |
-| **Protocole agent** | MCP stdio (JSON-RPC 2.0) + HTTP REST |
+| **Protocole agent** | MCP stdio (JSON-RPC 2.0) + MCP Streamable HTTP (`POST /mcp`) + HTTP REST |
 | **Protocole upstream** | MCP (stdio + SSE) + HTTP + CLI exec |
 | **Politique** | YAML, first-match-wins, glob patterns, fail-closed |
 | **Trace** | In-memory (buffer 10k) + JSONL (rotation 10 Mo) |
 | **Approbation** | Channel-based blocking, timeout 5 min, prefix match |
 | **Rate limiting** | Sliding window/min + total budget + loop detection |
-| **Tests** | 222 tests, 14 packages, race detector clean |
+| **Tests** | 266 Go tests + 29 Python SDK tests, race detector clean |
 | **Licence** | Apache 2.0 |
 
 ---
 
-## Ce qu'Agent Mesh n'est pas
+## Ce qu'flux7-mesh n'est pas
 
 | Il est | Il n'est pas |
 |--------|-------------|
@@ -555,7 +555,7 @@ L'agent voit les outils. Agent Mesh applique les règles. Chaque appel est trac�
 
 ### Comparaison avec les approches existantes
 
-| Système | Modèle | Limitation par rapport à agent-mesh |
+| Système | Modèle | Limitation par rapport à mesh7 |
 |---------|--------|-------------------------------------|
 | **Claude Code** (built-in) | Permission prompt par appel | Lié à un agent, pas de délégation, pas d'audit |
 | **LangChain** (`HumanApprovalCallbackHandler`) | In-process, middleware | Pas de séparation des responsabilités |
@@ -563,7 +563,7 @@ L'agent voit les outils. Agent Mesh applique les règles. Chaque appel est trac�
 | **CrewAI** (Manager agent) | Pattern manager intégré | Spécifique au framework |
 | **Microsoft Agent Governance Toolkit** | Middleware in-process | Pas de sidecar, pas d'observabilité externe |
 
-Agent Mesh sépare le **plan de gouvernance** du **plan d'exécution**. L'agent ne sait pas que le proxy existe. La gouvernance est invisible pour l'agent, visible pour l'opérateur.
+flux7-mesh sépare le **plan de gouvernance** du **plan d'exécution**. L'agent ne sait pas que le proxy existe. La gouvernance est invisible pour l'agent, visible pour l'opérateur.
 
 ### Spectre d'autonomie
 

@@ -1,13 +1,13 @@
 ---
 name: catalog
-description: Show all agent-mesh tools organized by source/category with policy actions
+description: Show all flux7-mesh tools organized by source/category with policy actions
 user-invocable: true
 argument-hint: "[source]"
 allowed-tools:
-  - mcp__agent-mesh__mesh.catalog
+  - mcp__mesh7__mesh.catalog
 ---
 
-Show all tools available through agent-mesh, grouped by source with policy actions.
+Show all tools available through flux7-mesh, grouped by source with policy actions.
 
 Arguments:
 - $0 = source filter (optional, e.g. "filesystem", "git", "gmail"). Omit to show all.
