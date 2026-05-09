@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/KTCrisis/flux7-mesh/config"
 	"github.com/KTCrisis/flux7-mesh/internal/match"
@@ -18,17 +19,34 @@ type Decision struct {
 }
 
 // Engine evaluates tool calls against configured policies.
+// Thread-safe: Evaluate uses RLock, Reload uses Lock.
 type Engine struct {
+	mu       sync.RWMutex
 	policies []config.Policy
 }
 
 func NewEngine(policies []config.Policy) *Engine {
+	e := &Engine{}
+	e.policies = sortPolicies(policies)
+	return e
+}
+
+// Reload atomically swaps the policy set. The caller is responsible for
+// validation before calling Reload — an empty slice is accepted (fail-closed).
+func (e *Engine) Reload(policies []config.Policy) {
+	sorted := sortPolicies(policies)
+	e.mu.Lock()
+	e.policies = sorted
+	e.mu.Unlock()
+}
+
+func sortPolicies(policies []config.Policy) []config.Policy {
 	sorted := make([]config.Policy, len(policies))
 	copy(sorted, policies)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return agentSpecificity(sorted[i].Agent) > agentSpecificity(sorted[j].Agent)
 	})
-	return &Engine{policies: sorted}
+	return sorted
 }
 
 // agentSpecificity scores an agent pattern: exact match > partial wildcard > catch-all.
@@ -45,7 +63,11 @@ func agentSpecificity(pattern string) int {
 // Evaluate checks if an agent can call a tool with given params.
 // Returns the first matching rule's decision. Default: deny.
 func (e *Engine) Evaluate(agentID string, toolName string, params map[string]any) Decision {
-	for _, pol := range e.policies {
+	e.mu.RLock()
+	policies := e.policies
+	e.mu.RUnlock()
+
+	for _, pol := range policies {
 		if !matchAgent(pol.Agent, agentID) {
 			continue
 		}

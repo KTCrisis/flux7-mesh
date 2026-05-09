@@ -59,6 +59,14 @@ func (l *Limiter) SetLimit(policyName string, limit Limit) {
 	l.limits[policyName] = limit
 }
 
+// ReplaceLimits atomically replaces all rate limits.
+// Existing per-agent counters are kept — only the limit thresholds change.
+func (l *Limiter) ReplaceLimits(limits map[string]Limit) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.limits = limits
+}
+
 // Check verifies if the agent can make a call. Returns nil if OK, error if denied.
 // policyName is the matched policy name from the engine.
 func (l *Limiter) Check(agentID, policyName, toolName, paramsKey string) error {

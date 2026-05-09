@@ -246,6 +246,31 @@ func (c *Config) validatePolicyNames() error {
 	return nil
 }
 
+// LoadPolicies loads and validates just the policies from a config file
+// (inline policies + policy_dir). Returns the policy list and the resolved
+// policy_dir path (empty if not configured).
+func LoadPolicies(configPath string) ([]Policy, string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, "", err
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, "", err
+	}
+	if err := cfg.loadPolicyDir(configPath); err != nil {
+		return nil, "", err
+	}
+	if err := cfg.validatePolicyNames(); err != nil {
+		return nil, "", err
+	}
+	policyDir := cfg.PolicyDir
+	if policyDir != "" && !filepath.IsAbs(policyDir) {
+		policyDir = filepath.Join(filepath.Dir(configPath), policyDir)
+	}
+	return cfg.Policies, policyDir, nil
+}
+
 func (c *Config) validateCLITools() error {
 	seen := make(map[string]bool, len(c.CLITools))
 	for i, ct := range c.CLITools {

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/KTCrisis/flux7-mesh/config"
@@ -224,4 +225,67 @@ func TestEvaluateToolGlobPattern(t *testing.T) {
 	if d.Action != "deny" {
 		t.Errorf("gmail catch-all: action = %q, want deny", d.Action)
 	}
+}
+
+func TestReload(t *testing.T) {
+	e := NewEngine([]config.Policy{
+		{Name: "v1", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"*"}, Action: "deny"},
+		}},
+	})
+
+	d := e.Evaluate("claude", "weather.forecast", nil)
+	if d.Action != "allow" {
+		// should be deny before reload
+	}
+	if d.Action != "deny" {
+		t.Fatalf("before reload: action = %q, want deny", d.Action)
+	}
+
+	e.Reload([]config.Policy{
+		{Name: "v2", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"weather.*"}, Action: "allow"},
+			{Tools: []string{"*"}, Action: "deny"},
+		}},
+	})
+
+	d = e.Evaluate("claude", "weather.forecast", nil)
+	if d.Action != "allow" {
+		t.Errorf("after reload: action = %q, want allow", d.Action)
+	}
+	if d.Rule != "v2" {
+		t.Errorf("after reload: rule = %q, want v2", d.Rule)
+	}
+
+	// Non-weather tools still denied
+	d = e.Evaluate("claude", "gmail.send", nil)
+	if d.Action != "deny" {
+		t.Errorf("after reload: gmail action = %q, want deny", d.Action)
+	}
+}
+
+func TestReloadConcurrent(t *testing.T) {
+	e := NewEngine([]config.Policy{
+		{Name: "init", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"*"}, Action: "deny"},
+		}},
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			e.Evaluate("agent", "tool", nil)
+		}()
+		go func() {
+			defer wg.Done()
+			e.Reload([]config.Policy{
+				{Name: "updated", Agent: "*", Rules: []config.Rule{
+					{Tools: []string{"*"}, Action: "allow"},
+				}},
+			})
+		}()
+	}
+	wg.Wait()
 }

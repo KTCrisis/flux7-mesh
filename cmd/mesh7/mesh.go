@@ -235,6 +235,27 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.mcpHTTP = mcp.NewHTTPHandler(m.reg, m.pol, m.traces, m.approvals, m.handler, m.mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents)
 	m.handler.MCPHTTPHandler = m.mcpHTTP
 
+	// Policy hot-reload watcher
+	policyWatcher, err := policy.NewWatcher(configPath, func(policies []config.Policy) {
+		m.pol.Reload(policies)
+		newLimits := make(map[string]ratelimit.Limit)
+		for _, p := range policies {
+			if p.RateLimit != nil {
+				newLimits[p.Name] = ratelimit.Limit{
+					MaxPerMinute: p.RateLimit.MaxPerMinute,
+					MaxTotal:     p.RateLimit.MaxTotal,
+				}
+			}
+		}
+		limiter.ReplaceLimits(newLimits)
+	})
+	if err != nil {
+		slog.Warn("policy hot-reload disabled", "error", err)
+	} else {
+		m.closers = append(m.closers, func() { policyWatcher.Close() })
+		slog.Info("policy hot-reload enabled", "config", configPath)
+	}
+
 	return m, nil
 }
 

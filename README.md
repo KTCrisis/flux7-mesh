@@ -578,7 +578,7 @@ go test ./... -race        # with race detector
 - [x] Python SDK (`pip install flux7-mesh` — GovernedToolkit for Claude API tool_use, direct HTTP client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery
-- [ ] Policy hot-reload
+- [x] Policy hot-reload (fsnotify, debounce 200ms, config + policy_dir)
 - [ ] Condition engine v2 (AND/OR/nested)
 
 ## Why "Agent Mesh"
