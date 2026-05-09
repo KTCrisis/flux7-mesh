@@ -11,11 +11,11 @@ Usage::
         \"\"\"Get current weather for a city.\"\"\"
         return fetch_weather(city)
 
-    # Generate tools[] for Claude API
-    schemas = toolkit.schemas()
+    # Generate tools[] for Claude API (names are namespace-qualified)
+    schemas = toolkit.schemas()  # [{"name": "my-agent.get_weather", ...}]
 
     # Execute tool_use blocks with governance
-    result = toolkit.execute(tool_name, tool_input)
+    result = toolkit.execute("my-agent.get_weather", tool_input)
 """
 from __future__ import annotations
 
@@ -71,9 +71,24 @@ class GovernedToolkit:
         agent: str = "default",
         url: str = "http://localhost:9090",
         mesh: AgentMesh | None = None,
+        namespace: str | None = None,
     ) -> None:
         self._mesh = mesh or AgentMesh(url=url, agent=agent)
         self._tools: dict[str, Callable] = {}
+        self._namespace = namespace or agent
+
+    def _qualify(self, name: str) -> str:
+        """Qualify a tool name with the namespace (e.g. 'read_file' -> 'audit7.read_file')."""
+        if "." in name:
+            return name
+        return f"{self._namespace}.{name}"
+
+    def _unqualify(self, name: str) -> str:
+        """Strip the namespace prefix to get the local tool name."""
+        prefix = f"{self._namespace}."
+        if name.startswith(prefix):
+            return name[len(prefix):]
+        return name
 
     def tool(self, func: Callable) -> Callable:
         """Register a function as a governed tool."""
@@ -87,29 +102,39 @@ class GovernedToolkit:
         self._tools[key] = func
 
     def schemas(self) -> list[dict[str, Any]]:
-        """Generate the tools[] array for the Claude API messages endpoint."""
+        """Generate the tools[] array for the Claude API messages endpoint.
+
+        Tool names are namespace-qualified (e.g. 'audit7.get_weather').
+        """
         result = []
         for name, func in self._tools.items():
             result.append({
-                "name": name,
+                "name": self._qualify(name),
                 "description": (func.__doc__ or "").strip().split("\n")[0],
                 "input_schema": _build_schema(func),
             })
         return result
 
     def execute(self, tool_name: str, tool_input: dict[str, Any]) -> Decision:
-        """Execute a tool call with governance: decide via mesh, then run locally."""
-        if tool_name not in self._tools:
+        """Execute a tool call with governance: decide via mesh, then run locally.
+
+        Accepts both qualified ('audit7.get_weather') and bare ('get_weather') names.
+        The qualified name is sent to mesh for policy evaluation; the bare name is
+        used for local function lookup.
+        """
+        qualified = self._qualify(tool_name)
+        local = self._unqualify(tool_name)
+        if local not in self._tools:
             return Decision(
                 action=Action.ERROR,
-                tool=tool_name,
-                error=f"unknown tool: {tool_name}",
+                tool=qualified,
+                error=f"unknown tool: {qualified}",
             )
-        decision = self._mesh.decide(tool_name, tool_input)
+        decision = self._mesh.decide(qualified, tool_input)
         if decision.action != Action.ALLOW:
             return decision
         try:
-            result = self._tools[tool_name](**tool_input)
+            result = self._tools[local](**tool_input)
             decision.result = str(result) if result is not None else ""
         except Exception as e:
             decision.action = Action.ERROR
@@ -117,22 +142,27 @@ class GovernedToolkit:
         return decision
 
     def execute_local(self, tool_name: str, tool_input: dict[str, Any]) -> Decision:
-        """Execute locally without going through mesh (for tools not proxied)."""
-        if tool_name not in self._tools:
+        """Execute locally without going through mesh (for tools not proxied).
+
+        Accepts both qualified and bare names.
+        """
+        qualified = self._qualify(tool_name)
+        local = self._unqualify(tool_name)
+        if local not in self._tools:
             return Decision(
                 action=Action.ERROR,
-                tool=tool_name,
-                error=f"unknown tool: {tool_name}",
+                tool=qualified,
+                error=f"unknown tool: {qualified}",
             )
         try:
-            result = self._tools[tool_name](**tool_input)
+            result = self._tools[local](**tool_input)
             return Decision(
                 action=Action.ALLOW,
-                tool=tool_name,
+                tool=qualified,
                 result=str(result) if result is not None else "",
             )
         except Exception as e:
-            return Decision(action=Action.ERROR, tool=tool_name, error=str(e))
+            return Decision(action=Action.ERROR, tool=qualified, error=str(e))
 
     def process_response(self, content: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Process tool_use blocks from a Claude API response.
