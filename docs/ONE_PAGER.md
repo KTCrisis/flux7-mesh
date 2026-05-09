@@ -70,7 +70,7 @@ Closest comparable : Microsoft Agent Governance Toolkit. But middleware vs sidec
 
 ## Current state (May 2026)
 
-- **v0.10.1** — 266 Go tests + 29 Python SDK tests, race clean
+- **v0.12.0** — 266 Go tests + 29 Python SDK tests, race clean
 - **Import** — MCP servers (stdio + SSE), OpenAPI specs, CLI binaries
 - **Export** — MCP stdio + MCP Streamable HTTP + HTTP REST
 - **Governance** — YAML policies, glob patterns, conditions, per-agent policy files, specificity sort
