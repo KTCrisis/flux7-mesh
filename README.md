@@ -145,7 +145,8 @@ def get_weather(city: str) -> str:
     """Get current weather for a city."""
     return fetch_weather(city)
 
-# Generate tools[] for Claude API
+# Generate tools[] for Claude API — names are namespace-qualified
+# e.g. "my-agent.get_weather"
 response = client.messages.create(
     model="claude-sonnet-4-6",
     tools=toolkit.schemas(),

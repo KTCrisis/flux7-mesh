@@ -534,7 +534,7 @@ L'agent voit les outils. flux7-mesh applique les r√®gles. Chaque appel est trac√
 | **Trace** | In-memory (buffer 10k) + JSONL (rotation 10 Mo) |
 | **Approbation** | Channel-based blocking, timeout 5 min, prefix match |
 | **Rate limiting** | Sliding window/min + total budget + loop detection |
-| **Tests** | 266 Go tests + 29 Python SDK tests, race detector clean |
+| **Tests** | 266 Go tests + 40 Python SDK tests, race detector clean |
 | **Licence** | Apache 2.0 |
 
 ---

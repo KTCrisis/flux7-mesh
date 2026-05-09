@@ -52,8 +52,9 @@ def send_email(to: str, subject: str, body: str) -> str:
     """Send an email."""
     return smtp_send(to, subject, body)
 
-# Generate tools[] for Claude API
+# Generate tools[] for Claude API — names are namespace-qualified
 schemas = toolkit.schemas()
+# [{"name": "my-agent.get_weather", ...}, {"name": "my-agent.send_email", ...}]
 
 # Process tool_use blocks with governance
 response = client.messages.create(model="claude-sonnet-4-6", tools=schemas, ...)
@@ -61,9 +62,11 @@ results = toolkit.process_response([b.model_dump() for b in response.content])
 ```
 
 The toolkit:
-1. **`schemas()`** — generates the `tools[]` array from Python function signatures
+1. **`schemas()`** — generates the `tools[]` array with namespace-qualified names (e.g. `my-agent.get_weather`)
 2. **`process_response()`** — intercepts `tool_use` blocks, checks policy via mesh7, executes locally if allowed
-3. **`execute()`** — single tool call with governance
+3. **`execute()`** — single tool call with governance (accepts both qualified and bare names)
+
+Tool names are automatically qualified with the agent name as namespace. This aligns with the MCP proxy `server.tool` convention, so policy authors write one name format regardless of call path. Use `namespace="custom"` to override.
 
 ## Prerequisites
 
@@ -88,7 +91,7 @@ mesh7 serve --config config.yaml
 | `create_grant(tools, duration)` | Create temporal grant |
 | `health()` / `is_healthy()` | Check mesh status |
 
-### `GovernedToolkit(agent, url)`
+### `GovernedToolkit(agent, url, namespace)`
 
 | Method | Description |
 |---|---|
