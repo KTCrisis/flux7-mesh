@@ -594,7 +594,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-268 Go tests across 15 packages + 49 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
+281 Go tests across 16 packages + 49 Python SDK tests, covering config parsing, policy evaluation, JWT auth validation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
 
 ## Roadmap
 

@@ -16,6 +16,7 @@ type Config struct {
 	StoragePath  string            `yaml:"storage_path"` // SQLite DB for durable state (approvals, grants)
 	TraceFile    string            `yaml:"trace_file"`
 	OTELEndpoint string            `yaml:"otel_endpoint"` // "stdout" or "http://localhost:4318" (OTLP HTTP)
+	Auth         AuthConfig        `yaml:"auth"`
 	Approval     ApprovalConfig    `yaml:"approval"`
 	Supervisor   SupervisorConfig  `yaml:"supervisor"`
 	Memory       MemoryConfig      `yaml:"memory"`
@@ -24,6 +25,19 @@ type Config struct {
 	MCPServers   []MCPServerConfig `yaml:"mcp_servers"`
 	CLITools     []CLIToolConfig   `yaml:"cli_tools"`
 	OpenAPIs     []OpenAPIConfig   `yaml:"openapi,omitempty"`
+}
+
+// AuthConfig holds authentication settings.
+type AuthConfig struct {
+	JWT *JWTConfig `yaml:"jwt,omitempty"`
+}
+
+// JWTConfig configures JWT validation against an external IdP.
+type JWTConfig struct {
+	JWKSURL    string `yaml:"jwks_url"`
+	Issuer     string `yaml:"issuer,omitempty"`
+	Audience   string `yaml:"audience,omitempty"`
+	AgentClaim string `yaml:"agent_claim,omitempty"` // default: "sub"
 }
 
 // MemoryConfig declares an optional mem7 server for persisting decisions.

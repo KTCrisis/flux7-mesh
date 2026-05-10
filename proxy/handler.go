@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/auth"
 	"github.com/KTCrisis/flux7-mesh/config"
 	meshexec "github.com/KTCrisis/flux7-mesh/exec"
 	"github.com/KTCrisis/flux7-mesh/grant"
@@ -57,7 +58,8 @@ type Handler struct {
 	Client        *http.Client
 	MCPForwarder  MCPForwarder
 	CLIRunner     *meshexec.Runner
-	SupervisorCfg config.SupervisorConfig
+	SupervisorCfg  config.SupervisorConfig
+	JWTValidator   *auth.Validator
 	MCPHTTPHandler http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
 	// Build info (populated from main.go ldflags-injected vars).
@@ -125,7 +127,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	toolName := strings.TrimPrefix(r.URL.Path, "/tool/")
-	agentID := extractAgentID(r)
+	agentID, jwtErr := h.extractAgentID(r)
+	if jwtErr != nil {
+		writeJSON(w, 401, map[string]string{"error": jwtErr.Error()})
+		return
+	}
 	traceID := extractTraceID(r)
 	if traceID == "" {
 		traceID = trace.NewID()
@@ -398,7 +404,12 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 
 	agentID := req.Agent
 	if agentID == "" {
-		agentID = extractAgentID(r)
+		var jwtErr error
+		agentID, jwtErr = h.extractAgentID(r)
+		if jwtErr != nil {
+			writeJSON(w, 401, map[string]any{"error": jwtErr.Error()})
+			return
+		}
 	}
 	toolName := req.Tool
 	if toolName == "" {
@@ -743,15 +754,32 @@ func extractSessionID(r *http.Request) string {
 }
 
 // extractAgentID reads the agent ID from the Authorization header.
-// Format: "Bearer agent:<agent-id>" or just "Bearer <agent-id>"
-func extractAgentID(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	auth = strings.TrimPrefix(auth, "Bearer ")
-	auth = strings.TrimPrefix(auth, "agent:")
-	if auth == "" {
-		return "anonymous"
+// Legacy format "Bearer agent:<id>" bypasses JWT validation.
+// If JWTValidator is configured, Bearer tokens are validated as JWT.
+// Returns (agentID, nil) on success or ("", error) if JWT validation fails.
+func (h *Handler) extractAgentID(r *http.Request) (string, error) {
+	raw := r.Header.Get("Authorization")
+	raw = strings.TrimPrefix(raw, "Bearer ")
+	if raw == "" {
+		return "anonymous", nil
 	}
-	return auth
+
+	// Legacy: "agent:<id>" — no JWT validation
+	if strings.HasPrefix(raw, "agent:") {
+		return strings.TrimPrefix(raw, "agent:"), nil
+	}
+
+	// JWT validation if configured
+	if h.JWTValidator != nil && strings.Count(raw, ".") == 2 {
+		agent, err := h.JWTValidator.ValidateToken(raw)
+		if err != nil {
+			return "", fmt.Errorf("authentication failed: %w", err)
+		}
+		return agent, nil
+	}
+
+	// No JWT config — pass through (backward compat)
+	return raw, nil
 }
 
 // --- Approval endpoints ---

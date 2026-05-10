@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/auth"
 	"github.com/KTCrisis/flux7-mesh/config"
 	meshexec "github.com/KTCrisis/flux7-mesh/exec"
 	"github.com/KTCrisis/flux7-mesh/grant"
@@ -193,6 +194,16 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		m.handler.CLIRunner = &meshexec.Runner{MaxOutputBytes: 1 << 20}
 	}
 
+	// JWT auth (optional)
+	if cfg.Auth.JWT != nil {
+		jwtValidator, err := auth.NewValidator(cfg.Auth.JWT)
+		if err != nil {
+			return nil, fmt.Errorf("jwt auth: %w", err)
+		}
+		m.handler.JWTValidator = jwtValidator
+		slog.Info("JWT auth enabled", "jwks_url", cfg.Auth.JWT.JWKSURL)
+	}
+
 	// Upstream MCP servers (parallel)
 	if len(cfg.MCPServers) > 0 {
 		m.mcpManager = mcp.NewManager()
@@ -233,6 +244,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 
 	// MCP Streamable HTTP handler
 	m.mcpHTTP = mcp.NewHTTPHandler(m.reg, m.pol, m.traces, m.approvals, m.handler, m.mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents)
+	m.mcpHTTP.JWTValidator = m.handler.JWTValidator
 	m.handler.MCPHTTPHandler = m.mcpHTTP
 
 	// Policy hot-reload watcher

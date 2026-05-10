@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/auth"
 	"github.com/KTCrisis/flux7-mesh/config"
 	"github.com/KTCrisis/flux7-mesh/grant"
 	"github.com/KTCrisis/flux7-mesh/policy"
@@ -408,6 +413,7 @@ func TestHandle404(t *testing.T) {
 }
 
 func TestExtractAgentID(t *testing.T) {
+	h := &Handler{} // no JWTValidator — legacy mode
 	tests := []struct {
 		header string
 		want   string
@@ -422,7 +428,10 @@ func TestExtractAgentID(t *testing.T) {
 		if tt.header != "" {
 			r.Header.Set("Authorization", tt.header)
 		}
-		got := extractAgentID(r)
+		got, err := h.extractAgentID(r)
+		if err != nil {
+			t.Errorf("extractAgentID(%q) unexpected error: %v", tt.header, err)
+		}
 		if got != tt.want {
 			t.Errorf("extractAgentID(%q) = %q, want %q", tt.header, got, tt.want)
 		}
@@ -1286,5 +1295,126 @@ func TestHandleDecideMissingTool(t *testing.T) {
 
 	if rr.Code != 400 {
 		t.Fatalf("expected 400 for missing tool, got %d", rr.Code)
+	}
+}
+
+// --- JWT auth tests ---
+
+func jwtHandler(t *testing.T) (*Handler, *rsa.PrivateKey) {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg := registry.New()
+	reg.LoadManual(&registry.Tool{Name: "test_tool", Source: "openapi"})
+
+	pol := policy.NewEngine([]config.Policy{
+		{Name: "allow-all", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"*"}, Action: "allow"},
+		}},
+	})
+
+	h := NewHandler(reg, pol, trace.NewStore(100))
+	h.JWTValidator = auth.NewValidatorWithKeys(map[string]any{
+		"test-key": &priv.PublicKey,
+	})
+	return h, priv
+}
+
+func signTestJWT(t *testing.T, priv *rsa.PrivateKey, claims jwt.MapClaims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = "test-key"
+	s, err := token.SignedString(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestJWTAuthValidToken(t *testing.T) {
+	h, priv := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	tok := signTestJWT(t, priv, jwt.MapClaims{
+		"sub": "jwt-agent",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+
+	req := httptest.NewRequest("POST", "/tool/test_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Tool not wired to backend, but policy should pass (allow-all) → 404 for missing backend is fine,
+	// but the agent should be extracted from JWT. Check traces.
+	entries := h.Traces.Query("", "", 10)
+	if len(entries) == 0 {
+		t.Fatal("expected trace entry")
+	}
+	if entries[0].AgentID != "jwt-agent" {
+		t.Errorf("agent = %q, want jwt-agent", entries[0].AgentID)
+	}
+}
+
+func TestJWTAuthInvalidToken(t *testing.T) {
+	h, _ := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	req := httptest.NewRequest("POST", "/tool/test_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiJ9.invalid.payload")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401 for invalid JWT", w.Code)
+	}
+}
+
+func TestJWTAuthLegacyAgentPrefix(t *testing.T) {
+	h, _ := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	// agent: prefix should bypass JWT validation
+	req := httptest.NewRequest("POST", "/tool/test_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer agent:legacy-bot")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Should not be 401
+	if w.Code == 401 {
+		t.Error("agent: prefix should bypass JWT validation")
+	}
+	entries := h.Traces.Query("", "", 10)
+	if len(entries) > 0 && entries[0].AgentID != "legacy-bot" {
+		t.Errorf("agent = %q, want legacy-bot", entries[0].AgentID)
+	}
+}
+
+func TestJWTAuthDecideEndpoint(t *testing.T) {
+	h, priv := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	tok := signTestJWT(t, priv, jwt.MapClaims{
+		"sub": "decide-agent",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+
+	body := `{"tool":"test_tool","arguments":{}}`
+	req := httptest.NewRequest("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["agent"] != "decide-agent" {
+		t.Errorf("agent = %v, want decide-agent", resp["agent"])
 	}
 }

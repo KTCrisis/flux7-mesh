@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/auth"
 	"github.com/KTCrisis/flux7-mesh/policy"
 	"github.com/KTCrisis/flux7-mesh/proxy"
 	"github.com/KTCrisis/flux7-mesh/registry"
@@ -23,6 +24,7 @@ type HTTPHandler struct {
 	Approvals        *approval.Store
 	Handler          *proxy.Handler
 	MCPManager       *Manager
+	JWTValidator     *auth.Validator
 	SupervisorMode   bool
 	SupervisorAgents []string
 
@@ -74,7 +76,11 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := r.Header.Get("Mcp-Session-Id")
-	agentID := extractAgentID(r)
+	agentID, jwtErr := h.extractAgentID(r)
+	if jwtErr != nil {
+		writeJSONRPCError(w, req.ID, -32600, jwtErr.Error(), http.StatusUnauthorized)
+		return
+	}
 
 	isInit := req.Method == "initialize"
 
@@ -171,18 +177,23 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 	return srv
 }
 
-// extractAgentID reads the agent identity from the Authorization header.
-// Supports "Bearer agent:<id>" (mesh7 convention) and plain "Bearer <token>".
-func extractAgentID(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
-		return "anonymous"
+func (h *HTTPHandler) extractAgentID(r *http.Request) (string, error) {
+	raw := r.Header.Get("Authorization")
+	if raw == "" {
+		return "anonymous", nil
 	}
-	token := strings.TrimPrefix(auth, "Bearer ")
+	token := strings.TrimPrefix(raw, "Bearer ")
 	if strings.HasPrefix(token, "agent:") {
-		return strings.TrimPrefix(token, "agent:")
+		return strings.TrimPrefix(token, "agent:"), nil
 	}
-	return "authenticated"
+	if h.JWTValidator != nil && strings.Count(token, ".") == 2 {
+		agent, err := h.JWTValidator.ValidateToken(token)
+		if err != nil {
+			return "", err
+		}
+		return agent, nil
+	}
+	return "authenticated", nil
 }
 
 func writeJSONRPCError(w http.ResponseWriter, id any, code int, msg string, httpStatus int) {
