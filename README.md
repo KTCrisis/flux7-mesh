@@ -1,3 +1,10 @@
+```
+   ______ ____                  __ 
+  / __/ //_  /_____ _  ___ ___ / / 
+ / _// /__/ /___/  ' \/ -_|_-</ _ \
+/_/ /____/_/   /_/_/_/\__/___/_//_/
+```
+
 # flux7-mesh
 
 [![GitHub release](https://img.shields.io/github/v/release/KTCrisis/flux7-mesh?style=flat-square&color=00bcd4)](https://github.com/KTCrisis/flux7-mesh/releases)
