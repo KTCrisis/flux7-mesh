@@ -33,6 +33,15 @@ func NewEngine(policies []config.Policy) *Engine {
 
 // Reload atomically swaps the policy set. The caller is responsible for
 // validation before calling Reload — an empty slice is accepted (fail-closed).
+// Policies returns a snapshot of the current policy set (sorted by specificity).
+func (e *Engine) Policies() []config.Policy {
+	e.mu.RLock()
+	out := make([]config.Policy, len(e.policies))
+	copy(out, e.policies)
+	e.mu.RUnlock()
+	return out
+}
+
 func (e *Engine) Reload(policies []config.Policy) {
 	sorted := sortPolicies(policies)
 	e.mu.Lock()

@@ -108,6 +108,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleListSessions(w, r)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/sessions/"):
 		h.handleSessionEvents(w, r)
+	case r.Method == "GET" && r.URL.Path == "/policies":
+		h.handlePolicies(w, r)
 	case r.Method == "GET" && r.URL.Path == "/health":
 		h.handleHealth(w, r)
 	case r.Method == "GET" && r.URL.Path == "/version":
@@ -617,6 +619,10 @@ func (h *Handler) handleMCPServers(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, 200, h.MCPForwarder.ServerStatuses())
+}
+
+func (h *Handler) handlePolicies(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, 200, h.Policy.Policies())
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {

@@ -553,6 +553,7 @@ Set `MESH_URL` to override the default `http://localhost:9090`.
 | `GET` | `/approvals/{id}` | Approval detail with context |
 | `POST` | `/approvals/{id}/approve` | Approve (optional: reasoning, confidence) |
 | `POST` | `/approvals/{id}/deny` | Deny (optional: reasoning, confidence) |
+| `GET` | `/policies` | List all policies (sorted by specificity) |
 | `GET` | `/grants` | List active grants |
 | `POST` | `/grants` | Create a grant |
 | `DELETE` | `/grants/{id}` | Revoke a grant |
@@ -593,7 +594,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-260 Go tests across 15 packages + 49 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
+268 Go tests across 15 packages + 49 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
 
 ## Roadmap
 

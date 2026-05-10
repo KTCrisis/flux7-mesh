@@ -122,28 +122,28 @@ type MCPServerConfig struct {
 }
 
 type Policy struct {
-	Name      string     `yaml:"name"`
-	Agent     string     `yaml:"agent"` // agent ID pattern (* = any)
-	RateLimit *RateLimit `yaml:"rate_limit,omitempty"`
-	Rules     []Rule     `yaml:"rules"`
+	Name      string     `yaml:"name" json:"name"`
+	Agent     string     `yaml:"agent" json:"agent"`
+	RateLimit *RateLimit `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`
+	Rules     []Rule     `yaml:"rules" json:"rules"`
 }
 
 // RateLimit defines per-agent call constraints.
 type RateLimit struct {
-	MaxPerMinute int `yaml:"max_per_minute"` // max calls per sliding minute window
-	MaxTotal     int `yaml:"max_total"`      // max total calls (lifetime of process)
+	MaxPerMinute int `yaml:"max_per_minute" json:"max_per_minute"`
+	MaxTotal     int `yaml:"max_total" json:"max_total"`
 }
 
 type Rule struct {
-	Tools     []string   `yaml:"tools"`
-	Action    string     `yaml:"action"` // allow, deny, human_approval
-	Condition *Condition `yaml:"condition,omitempty"`
+	Tools     []string   `yaml:"tools" json:"tools"`
+	Action    string     `yaml:"action" json:"action"`
+	Condition *Condition `yaml:"condition,omitempty" json:"condition,omitempty"`
 }
 
 type Condition struct {
-	Field    string  `yaml:"field"`    // e.g. "params.amount"
-	Operator string  `yaml:"operator"` // <, >, ==, !=
-	Value    float64 `yaml:"value"`
+	Field    string  `yaml:"field" json:"field"`
+	Operator string  `yaml:"operator" json:"operator"`
+	Value    float64 `yaml:"value" json:"value"`
 }
 
 func Load(path string) (*Config, error) {

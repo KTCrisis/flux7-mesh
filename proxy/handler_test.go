@@ -1211,6 +1211,71 @@ func TestHandleDecideAgentFromHeader(t *testing.T) {
 	}
 }
 
+func TestHandlePolicies(t *testing.T) {
+	pol := policy.NewEngine([]config.Policy{
+		{Name: "admin", Agent: "admin", Rules: []config.Rule{
+			{Tools: []string{"*"}, Action: "allow"},
+		}},
+		{Name: "default", Agent: "*", Rules: []config.Rule{
+			{Tools: []string{"*.read_*"}, Action: "allow"},
+			{Tools: []string{"*.write_*"}, Action: "human_approval",
+				Condition: &config.Condition{Field: "params.size", Operator: "<", Value: 1000}},
+			{Tools: []string{"*"}, Action: "deny"},
+		}},
+	})
+	h := NewHandler(registry.New(), pol, trace.NewStore(100))
+
+	req := httptest.NewRequest("GET", "/policies", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var policies []config.Policy
+	json.NewDecoder(w.Body).Decode(&policies)
+
+	// Specificity sort: exact ("admin") before wildcard ("*")
+	if len(policies) != 2 {
+		t.Fatalf("policies = %d, want 2", len(policies))
+	}
+	if policies[0].Name != "admin" {
+		t.Errorf("first policy = %q, want admin (exact agent before wildcard)", policies[0].Name)
+	}
+	if policies[1].Name != "default" {
+		t.Errorf("second policy = %q, want default", policies[1].Name)
+	}
+	if len(policies[1].Rules) != 3 {
+		t.Fatalf("default rules = %d, want 3", len(policies[1].Rules))
+	}
+	if policies[1].Rules[1].Condition == nil {
+		t.Fatal("expected condition on second rule")
+	}
+	if policies[1].Rules[1].Condition.Field != "params.size" {
+		t.Errorf("condition field = %q, want params.size", policies[1].Rules[1].Condition.Field)
+	}
+}
+
+func TestHandlePoliciesEmpty(t *testing.T) {
+	pol := policy.NewEngine(nil)
+	h := NewHandler(registry.New(), pol, trace.NewStore(100))
+
+	req := httptest.NewRequest("GET", "/policies", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var policies []config.Policy
+	json.NewDecoder(w.Body).Decode(&policies)
+	if len(policies) != 0 {
+		t.Errorf("policies = %d, want 0", len(policies))
+	}
+}
+
 func TestHandleDecideMissingTool(t *testing.T) {
 	h, _ := setupHandler(t)
 	body := `{"agent":"bot","arguments":{}}`
