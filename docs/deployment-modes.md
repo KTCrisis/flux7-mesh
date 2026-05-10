@@ -13,6 +13,8 @@ flux7-mesh supports different configurations depending on who connects and how.
 | **5** | Claude + external agent | MCP stdio + HTTP | Claude spawns it | Optional | Works |
 | **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | **Port conflict** |
 | **7** | 2 Claude sessions | MCP stdio × 2 | Both spawn | - | **Port conflict** |
+| **8** | Managed Agents (cloud) | MCP Streamable HTTP | Manual / deploy | Optional | Works |
+| **9** | Agent SDK + hooks | HTTP `/decide` | Manual (`mesh7 serve`) | None | Works |
 
 Configs 1–5 work out of the box. Configs 6–7 have a port conflict — use daemon mode (`mesh7 serve`) to solve them.
 
@@ -219,6 +221,36 @@ flux7-mesh extracts the agent ID from `Authorization: Bearer agent:<id>` and app
 - Prod: deploy flux7-mesh on a VPS or cloud host
 
 **Permission policies:** Set `always_allow` on the Managed Agent side — let flux7-mesh handle governance. Double-layer approval (Managed Agents `always_ask` + flux7-mesh `human_approval`) works but adds friction.
+
+## Config 9: Anthropic Agent SDK + hooks
+
+Agent SDK agents governed by mesh7 via `MeshHooks`. No MCP — hooks call `/decide` directly.
+
+```
+Agent SDK agent
+├── PreToolUse hook ── POST /decide ──> flux7-mesh :9090
+│                                          │
+│                                     policies, traces, grants
+│                                          │
+└── tool execution (local) ───────────────┘
+```
+
+**Setup:**
+
+```python
+from mesh7 import MeshHooks
+
+hooks = MeshHooks(agent="my-agent")
+agent = Agent(
+    model="claude-sonnet-4-6",
+    tools=[...],
+    options=ClaudeAgentOptions(hooks=hooks.agent_sdk_hooks()),
+)
+```
+
+Same YAML policies as every other mode. `human_approval` maps to Agent SDK's `"ask"` (terminal prompt). For the full approval workflow (webhooks, CLI, auto-approve), use Config 1 or 8 instead.
+
+See `examples/agent-sdk-hooks/` and `sdk/python/README.md`.
 
 ---
 

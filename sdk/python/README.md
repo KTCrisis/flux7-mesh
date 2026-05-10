@@ -68,6 +68,34 @@ The toolkit:
 
 Tool names are automatically qualified with the agent name as namespace. This aligns with the MCP proxy `server.tool` convention, so policy authors write one name format regardless of call path. Use `namespace="custom"` to override.
 
+### MeshHooks (Agent SDK)
+
+```python
+from mesh7 import MeshHooks
+
+hooks = MeshHooks(agent="my-agent")
+
+# Ready for Anthropic Agent SDK
+options = ClaudeAgentOptions(hooks=hooks.agent_sdk_hooks())
+```
+
+Every tool call goes through mesh7's `/decide` endpoint. Same YAML policies, same tracing, same grants and rate limits as Claude Code or any other mesh7-connected agent. No policy duplication.
+
+| mesh7 action | Agent SDK | Effect |
+|---|---|---|
+| `allow` | `allow` | Tool executes |
+| `deny` | `deny` | Tool blocked with reason |
+| `human_approval` | `ask` | User prompted in terminal |
+
+Options:
+
+| Param | Default | Description |
+|---|---|---|
+| `tool_matcher` | `".*"` | Regex pre-filter (which tools hit mesh7) |
+| `fail_action` | `"deny"` | Behavior when mesh7 is unreachable |
+
+See `examples/agent-sdk-hooks/` for a complete example.
+
 ## Prerequisites
 
 mesh7 daemon running:
@@ -99,3 +127,9 @@ mesh7 serve --config config.yaml
 | `schemas()` | Generate Claude API tools array |
 | `execute(name, input)` | Governed execution |
 | `process_response(content)` | Process Claude response blocks |
+
+### `MeshHooks(agent, url, tool_matcher, fail_action)`
+
+| Method | Description |
+|---|---|
+| `agent_sdk_hooks()` | Return hooks dict for `ClaudeAgentOptions` |

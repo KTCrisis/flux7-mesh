@@ -174,6 +174,15 @@ decision = mesh.call_tool("filesystem.write_file", {"path": "/tmp/x", "content":
 print(decision.action)  # allow | deny | human_approval
 ```
 
+### Agent SDK hooks
+
+```python
+from mesh7 import MeshHooks
+
+hooks = MeshHooks(agent="my-agent")
+# Pass to ClaudeAgentOptions(hooks=hooks.agent_sdk_hooks())
+```
+
 See [sdk/python/](sdk/python/) for full docs and examples.
 
 ## Quick start
@@ -584,7 +593,7 @@ go test ./...              # all tests
 go test ./... -race        # with race detector
 ```
 
-260 Go tests across 15 packages + 29 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
+260 Go tests across 15 packages + 49 Python SDK tests, covering config parsing, policy evaluation, HTTP/MCP proxy flows, approval lifecycle, mem7 auto-approve, supervisor agent whitelist, CLI execution security, rate limiting, tracing, OTEL export, supervisor content isolation, injection detection, durable state persistence, and auto-proxy daemon detection.
 
 ## Roadmap
 
@@ -606,7 +615,7 @@ go test ./... -race        # with race detector
 - [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
 - [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
 - [x] `mesh7 serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
-- [x] Python SDK (`pip install flux7-mesh` — GovernedToolkit for Claude API tool_use, direct HTTP client)
+- [x] Python SDK (`pip install flux7-mesh` — GovernedToolkit for Claude API tool_use, MeshHooks for Agent SDK, direct HTTP client)
 - [ ] Operator auth (separate identity from agent Bearer)
 - [ ] Session log durable + `wake(sessionId)` recovery
 - [x] Policy hot-reload (fsnotify, debounce 200ms, config + policy_dir)

@@ -1,0 +1,24 @@
+port: 9092
+
+mcp_servers:
+  - name: filesystem
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/demo"]
+
+policies:
+  - name: agent
+    agent: "my-agent"
+    rules:
+      - tools: ["filesystem.read_*", "filesystem.list_*", "filesystem.search_*"]
+        action: allow
+      - tools: ["filesystem.write_file", "filesystem.edit_file"]
+        action: human_approval
+      - tools: ["filesystem.*"]
+        action: deny
+
+  - name: default
+    agent: "*"
+    rules:
+      - tools: ["*"]
+        action: deny
