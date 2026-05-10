@@ -1,0 +1,27 @@
+port: 9090
+
+# JWT auth — mesh7 validates tokens from an external IdP.
+# Agents must present a valid JWT in Authorization: Bearer <token>.
+# The "agent:" prefix bypasses JWT (legacy/dev mode).
+auth:
+  jwt:
+    jwks_url: https://auth.example.com/.well-known/jwks.json
+    issuer: https://auth.example.com
+    audience: mesh7
+    agent_claim: sub   # which JWT claim maps to agent ID (default: sub)
+
+policies:
+  - name: authenticated-agents
+    agent: "*"
+    rules:
+      - tools: ["filesystem.read_*"]
+        action: allow
+      - tools: ["filesystem.write_*"]
+        action: human_approval
+      - tools: ["*"]
+        action: deny
+
+mcp_servers:
+  - name: filesystem
+    command: npx
+    args: ["-y", "@anthropic/mcp-filesystem", "/tmp"]
