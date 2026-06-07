@@ -17,14 +17,34 @@ Agent calls filesystem.write_file
   │
   └── Submit to approval queue
       │
-      ├── MCP mode: prompt in terminal OR block for supervisor
-      ├── HTTP mode: return 202, agent polls or uses callback
+      ├── MCP mode: routed per approval.channel (TTY prompt or queue)
+      ├── HTTP mode: always the queue — blocks until resolved
       │
       └── Human/supervisor resolves
           ├── approved → tool call executed, result returned
           ├── denied → 403 returned
           └── timeout → 408 returned (default 5 min)
 ```
+
+## Routing: `approval.channel`
+
+In MCP mode, `approval.channel` decides where a `human_approval` request goes:
+
+```yaml
+approval:
+  timeout_seconds: 300
+  channel: queue        # queue | tty | tty-fallback
+```
+
+| Channel | Behavior |
+|---|---|
+| `queue` | Always enqueue. For daemons and supervisor setups — a service has no terminal to prompt on. |
+| `tty` | Require the interactive `/dev/tty` prompt. If no TTY is available, the call is **denied** (fail-closed), never silently queued. |
+| `tty-fallback` | Try the TTY prompt, fall back to the queue. Default — matches the historical behavior. |
+
+Without an explicit channel, routing depends on how the process was launched: a daemon started from a terminal keeps a usable `/dev/tty` and will prompt in a window nobody watches. Set `channel: queue` for any unattended deployment (systemd, container, supervisor loop).
+
+The HTTP proxy path (`POST /tool/{name}`) always uses the queue regardless of this setting.
 
 ## Resolving approvals
 
