@@ -95,6 +95,7 @@ func main() {
 			SessionID:        *mcpSessionID,
 			SupervisorMode:   m.cfg.Supervisor.IsEnabled(),
 			SupervisorAgents: m.cfg.Supervisor.SupervisorAgents,
+			ApprovalChannel:  m.cfg.Approval.Channel,
 		}
 		if err := server.Run(); err != nil {
 			slog.Error("MCP server failed", "error", err)

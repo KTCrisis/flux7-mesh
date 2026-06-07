@@ -911,3 +911,92 @@ func TestApprovalResolveBlockedForNormalAgent(t *testing.T) {
 		t.Error("normal agent must be rejected calling approval.resolve — self-approval hole")
 	}
 }
+
+// --- approval.channel routing tests ---
+
+func TestApprovalChannelAction(t *testing.T) {
+	cases := []struct {
+		channel    string
+		tryTTY     bool
+		failClosed bool
+	}{
+		{"queue", false, false},
+		{"tty", true, true},
+		{"tty-fallback", true, false},
+		{"", true, false}, // unset = historical behavior
+	}
+	for _, c := range cases {
+		tryTTY, failClosed := approvalChannelAction(c.channel)
+		if tryTTY != c.tryTTY || failClosed != c.failClosed {
+			t.Errorf("approvalChannelAction(%q) = (%v, %v), want (%v, %v)",
+				c.channel, tryTTY, failClosed, c.tryTTY, c.failClosed)
+		}
+	}
+}
+
+func TestApprovalChannelQueueSkipsTTY(t *testing.T) {
+	s := approvalServer()
+	s.SupervisorAgents = nil // non-blocking flow
+	s.ApprovalChannel = "queue"
+	ttyCalled := false
+	s.ttyPrompt = func(string, map[string]any) (*bool, string) {
+		ttyCalled = true
+		approved := true
+		return &approved, "tty:test"
+	}
+
+	responses := sendRPC(t, s, rpcRequest{
+		JSONRPC: "2.0", ID: float64(1), Method: "tools/call",
+		Params: map[string]any{"name": "risky_tool", "arguments": map[string]any{}},
+	})
+
+	if ttyCalled {
+		t.Error("channel=queue must not attempt the TTY prompt")
+	}
+	if text := extractText(t, responses[0]); !strings.Contains(text, "Approval required") {
+		t.Errorf("expected queued approval, got: %s", text)
+	}
+	if pending := s.Approvals.ListPending(); len(pending) != 1 {
+		t.Errorf("pending = %d, want 1", len(pending))
+	}
+}
+
+func TestApprovalChannelTTYFailClosed(t *testing.T) {
+	s := approvalServer()
+	s.SupervisorAgents = nil
+	s.ApprovalChannel = "tty"
+	// TTY unavailable: prompt returns nil (same contract as promptTTY without /dev/tty)
+	s.ttyPrompt = func(string, map[string]any) (*bool, string) { return nil, "" }
+
+	responses := sendRPC(t, s, rpcRequest{
+		JSONRPC: "2.0", ID: float64(1), Method: "tools/call",
+		Params: map[string]any{"name": "risky_tool", "arguments": map[string]any{}},
+	})
+
+	text := extractText(t, responses[0])
+	if !strings.Contains(text, "Approval denied") {
+		t.Errorf("channel=tty without TTY must fail closed, got: %s", text)
+	}
+	if pending := s.Approvals.ListPending(); len(pending) != 0 {
+		t.Errorf("fail-closed must not enqueue, pending = %d", len(pending))
+	}
+}
+
+func TestApprovalChannelTTYFallbackUsesQueue(t *testing.T) {
+	s := approvalServer()
+	s.SupervisorAgents = nil
+	s.ApprovalChannel = "tty-fallback"
+	s.ttyPrompt = func(string, map[string]any) (*bool, string) { return nil, "" }
+
+	responses := sendRPC(t, s, rpcRequest{
+		JSONRPC: "2.0", ID: float64(1), Method: "tools/call",
+		Params: map[string]any{"name": "risky_tool", "arguments": map[string]any{}},
+	})
+
+	if text := extractText(t, responses[0]); !strings.Contains(text, "Approval required") {
+		t.Errorf("tty-fallback without TTY must enqueue, got: %s", text)
+	}
+	if pending := s.Approvals.ListPending(); len(pending) != 1 {
+		t.Errorf("pending = %d, want 1", len(pending))
+	}
+}

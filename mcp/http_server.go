@@ -27,6 +27,7 @@ type HTTPHandler struct {
 	AllowLegacyAgent bool
 	SupervisorMode   bool
 	SupervisorAgents []string
+	ApprovalChannel  string
 
 	mu       sync.Mutex
 	sessions map[string]*Server
@@ -42,6 +43,7 @@ func NewHTTPHandler(
 	mcpMgr *Manager,
 	supervisorMode bool,
 	supervisorAgents []string,
+	approvalChannel string,
 ) *HTTPHandler {
 	return &HTTPHandler{
 		Registry:         reg,
@@ -52,6 +54,7 @@ func NewHTTPHandler(
 		MCPManager:       mcpMgr,
 		SupervisorMode:   supervisorMode,
 		SupervisorAgents: supervisorAgents,
+		ApprovalChannel:  approvalChannel,
 		sessions:         make(map[string]*Server),
 	}
 }
@@ -167,6 +170,7 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 		SessionID:        trace.NewID(),
 		SupervisorMode:   h.SupervisorMode,
 		SupervisorAgents: h.SupervisorAgents,
+		ApprovalChannel:  h.ApprovalChannel,
 	}
 	h.sessions[srv.SessionID] = srv
 

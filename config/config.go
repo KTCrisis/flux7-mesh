@@ -153,6 +153,12 @@ type CLICommandConfig struct {
 type ApprovalConfig struct {
 	TimeoutSeconds int    `yaml:"timeout_seconds"` // default 300 (5 min)
 	NotifyURL      string `yaml:"notify_url"`      // webhook URL for new pending approvals
+	// Channel selects how human_approval requests are routed in MCP mode:
+	//   queue        — always enqueue to the approval store (daemons, supervisor setups)
+	//   tty          — require the interactive /dev/tty prompt; deny if unavailable (fail-closed)
+	//   tty-fallback — try the TTY prompt, fall back to the queue (default, historical behavior)
+	// The HTTP proxy path always uses the queue regardless of this setting.
+	Channel string `yaml:"channel"`
 }
 
 // MCPServerConfig declares an upstream MCP server to connect to.
@@ -205,6 +211,14 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Approval.TimeoutSeconds == 0 {
 		cfg.Approval.TimeoutSeconds = 300
+	}
+	if cfg.Approval.Channel == "" {
+		cfg.Approval.Channel = "tty-fallback"
+	}
+	switch cfg.Approval.Channel {
+	case "queue", "tty", "tty-fallback":
+	default:
+		return nil, fmt.Errorf("approval.channel: unknown value %q (expected queue, tty or tty-fallback)", cfg.Approval.Channel)
 	}
 	if err := cfg.loadPolicyDir(path); err != nil {
 		return nil, err

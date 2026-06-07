@@ -261,7 +261,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	}
 
 	// MCP Streamable HTTP handler
-	m.mcpHTTP = mcp.NewHTTPHandler(m.reg, m.pol, m.traces, m.approvals, m.handler, m.mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents)
+	m.mcpHTTP = mcp.NewHTTPHandler(m.reg, m.pol, m.traces, m.approvals, m.handler, m.mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents, cfg.Approval.Channel)
 	m.mcpHTTP.JWTValidator = m.handler.JWTValidator
 	m.mcpHTTP.AllowLegacyAgent = m.handler.AllowLegacyAgent
 	m.handler.MCPHTTPHandler = m.mcpHTTP

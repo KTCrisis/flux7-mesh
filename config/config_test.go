@@ -567,3 +567,35 @@ func TestTLSConfigEnabled(t *testing.T) {
 		t.Error("both cert and key should be enabled")
 	}
 }
+
+func TestLoadApprovalChannel(t *testing.T) {
+	for _, channel := range []string{"queue", "tty", "tty-fallback"} {
+		yaml := "approval:\n  channel: " + channel + "\npolicies: []\n"
+		f := writeTempFile(t, yaml)
+		cfg, err := Load(f)
+		if err != nil {
+			t.Fatalf("Load(channel=%s): %v", channel, err)
+		}
+		if cfg.Approval.Channel != channel {
+			t.Errorf("channel = %q, want %q", cfg.Approval.Channel, channel)
+		}
+	}
+}
+
+func TestLoadApprovalChannelDefault(t *testing.T) {
+	f := writeTempFile(t, "policies: []\n")
+	cfg, err := Load(f)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Approval.Channel != "tty-fallback" {
+		t.Errorf("channel = %q, want tty-fallback (default)", cfg.Approval.Channel)
+	}
+}
+
+func TestLoadApprovalChannelInvalid(t *testing.T) {
+	f := writeTempFile(t, "approval:\n  channel: webhook\npolicies: []\n")
+	if _, err := Load(f); err == nil {
+		t.Fatal("expected error for unknown approval.channel")
+	}
+}

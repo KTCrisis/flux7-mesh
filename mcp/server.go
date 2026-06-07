@@ -113,6 +113,24 @@ type Server struct {
 	SessionID        string   // optional session ID (set externally or auto-generated at initialize)
 	SupervisorMode   bool     // when true, hide approval.* virtual tools from agents
 	SupervisorAgents []string // agent ID globs allowed to see approval tools in supervisor mode
+	ApprovalChannel  string   // queue | tty | tty-fallback (empty = tty-fallback, see config.ApprovalConfig)
+
+	// ttyPrompt overrides promptTTY in tests (a real /dev/tty prompt would block).
+	ttyPrompt func(toolName string, params map[string]any) (*bool, string)
+}
+
+// approvalChannelAction maps an approval.channel value to routing behavior:
+// tryTTY — attempt the interactive /dev/tty prompt before the queue;
+// failClosed — if the TTY is unavailable, deny instead of falling back to the queue.
+func approvalChannelAction(channel string) (tryTTY, failClosed bool) {
+	switch channel {
+	case "queue":
+		return false, false
+	case "tty":
+		return true, true
+	default: // "tty-fallback" or unset — historical behavior
+		return true, false
+	}
 }
 
 // isSupervisorAgent reports whether the current agent is a declared supervisor
@@ -430,8 +448,19 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 			PolicyRule: decision.Rule,
 		}
 
-		// Try TTY prompt first (interactive terminal), fall back to approval store
-		approved, resolvedBy := s.promptTTY(toolName, arguments)
+		// Route per approval.channel: queue skips the TTY prompt entirely,
+		// tty requires it (fail-closed), tty-fallback tries TTY then the queue.
+		tryTTY, failClosed := approvalChannelAction(s.ApprovalChannel)
+
+		var approved *bool
+		var resolvedBy string
+		if tryTTY {
+			prompt := s.ttyPrompt
+			if prompt == nil {
+				prompt = s.promptTTY
+			}
+			approved, resolvedBy = prompt(toolName, arguments)
+		}
 		if approved != nil {
 			s.Traces.Record(entry)
 			if *approved {
@@ -476,6 +505,21 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 			return map[string]any{
 				"content": []map[string]any{
 					{"type": "text", "text": "Approval denied by " + resolvedBy},
+				},
+			}, nil
+		}
+
+		// approval.channel: tty is fail-closed — no fallback when the TTY is unavailable.
+		if failClosed {
+			entry.ApprovalStatus = string(approval.StatusDenied)
+			entry.ApprovedBy = "channel:tty-unavailable"
+			s.Traces.Record(entry)
+			slog.Warn("approval denied: channel is 'tty' but no TTY is available",
+				"agent", s.AgentID, "tool", toolName)
+			return map[string]any{
+				"content": []map[string]any{
+					{"type": "text", "text": "Approval denied: approval.channel is 'tty' but no interactive terminal is available. " +
+						"Use 'queue' or 'tty-fallback' for headless deployments."},
 				},
 			}, nil
 		}

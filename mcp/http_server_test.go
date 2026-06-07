@@ -33,7 +33,7 @@ func testHTTPHandler() *HTTPHandler {
 	handler := proxy.NewHandler(reg, pol, traces)
 	handler.Approvals = approvals
 
-	return NewHTTPHandler(reg, pol, traces, approvals, handler, nil, false, nil)
+	return NewHTTPHandler(reg, pol, traces, approvals, handler, nil, false, nil, "queue")
 }
 
 func postMCP(h *HTTPHandler, sessionID string, req rpcRequest) *httptest.ResponseRecorder {
