@@ -54,7 +54,7 @@ def send_email(to: str, subject: str, body: str) -> str:
 
 # Generate tools[] for Claude API — names are namespace-qualified
 schemas = toolkit.schemas()
-# [{"name": "my-agent.get_weather", ...}, {"name": "my-agent.send_email", ...}]
+# [{"name": "my-agent__get_weather", ...}, {"name": "my-agent__send_email", ...}]
 
 # Process tool_use blocks with governance
 response = client.messages.create(model="claude-sonnet-4-6", tools=schemas, ...)
@@ -62,11 +62,13 @@ results = toolkit.process_response([b.model_dump() for b in response.content])
 ```
 
 The toolkit:
-1. **`schemas()`** — generates the `tools[]` array with namespace-qualified names (e.g. `my-agent.get_weather`)
+1. **`schemas()`** — generates the `tools[]` array with namespace-qualified names (e.g. `my-agent__get_weather`)
 2. **`process_response()`** — intercepts `tool_use` blocks, checks policy via mesh7, executes locally if allowed
-3. **`execute()`** — single tool call with governance (accepts both qualified and bare names)
+3. **`execute()`** — single tool call with governance (accepts API-safe, qualified, and bare names)
 
-Tool names are automatically qualified with the agent name as namespace. This aligns with the MCP proxy `server.tool` convention, so policy authors write one name format regardless of call path. Use `namespace="custom"` to override.
+Tool names are namespace-qualified with the agent name. **The Claude API rejects dots in tool names** (the schema is `^[a-zA-Z0-9_-]{1,128}$`), so `schemas()` emits the API-safe form `my-agent__get_weather` (double underscore). On the way back in, `execute()`/`process_response()` map it to the dotted form `my-agent.get_weather` that mesh7 evaluates — so policy authors still write one name format (`agent.tool`) regardless of call path, matching the MCP proxy `server.tool` convention. Use `namespace="custom"` to override the prefix.
+
+> **Fixed in 0.4.1.** Versions ≤ 0.4.0 emitted dotted names from `schemas()`, which the Claude API rejected with `tools.0.custom.name: String should match pattern`. Upgrade if you call the Claude Messages API through `GovernedToolkit`.
 
 ### MeshHooks (Agent SDK)
 
