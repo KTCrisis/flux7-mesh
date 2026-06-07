@@ -1,0 +1,25 @@
+# flux7-mesh sidecar — system unit (survives WSL user-manager bus issues).
+# Install:
+#   sudo cp contrib/systemd/mesh7.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now mesh7
+# Adapt User= and paths to your setup.
+#
+# A systemd service has no TTY: set `approval.channel: queue` in the mesh
+# config so human_approval requests are routed to the approval queue
+# (resolved via sup7, the HTTP API or the mesh CLI) instead of relying on
+# TTY detection.
+
+[Unit]
+Description=flux7-mesh governance sidecar (mesh7)
+Documentation=https://docs.flux7.art
+After=network.target mem7.service
+Wants=mem7.service
+
+[Service]
+User=fluxart
+ExecStart=/home/fluxart/go/bin/mesh7 serve --config /home/fluxart/flux7-mesh/my-flow.local.yaml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
