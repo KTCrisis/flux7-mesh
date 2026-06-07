@@ -8,6 +8,7 @@
 # flux7-mesh
 
 [![GitHub release](https://img.shields.io/github/v/release/KTCrisis/flux7-mesh?style=flat-square&color=00bcd4)](https://github.com/KTCrisis/flux7-mesh/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/KTCrisis/flux7-mesh/ci.yaml?style=flat-square&label=CI)](https://github.com/KTCrisis/flux7-mesh/actions/workflows/ci.yaml)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 
