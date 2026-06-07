@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -17,12 +18,12 @@ type sseTransport struct {
 	sseURL  string
 	headers map[string]string
 
-	postURL    string // discovered from SSE "endpoint" event
-	postMu     sync.RWMutex
-	postReady  chan struct{} // closed when postURL is discovered
+	postURL   string // discovered from SSE "endpoint" event
+	postMu    sync.RWMutex
+	postReady chan struct{} // closed when postURL is discovered
 
-	client     *http.Client // SSE stream (no timeout)
-	postClient *http.Client // POST requests (30s timeout)
+	client     *http.Client   // SSE stream (no timeout)
+	postClient *http.Client   // POST requests (30s timeout)
 	resp       *http.Response // SSE connection response (kept open)
 }
 
@@ -32,7 +33,7 @@ func newSSETransport(name, sseURL string, headers map[string]string) *sseTranspo
 		sseURL:     sseURL,
 		headers:    headers,
 		postReady:  make(chan struct{}),
-		client:     &http.Client{Timeout: 0},              // no timeout for SSE stream
+		client:     &http.Client{Timeout: 0},                // no timeout for SSE stream
 		postClient: &http.Client{Timeout: 30 * time.Second}, // POST requests
 	}
 }
@@ -132,10 +133,19 @@ func (t *sseTransport) ReadLoop(onMessage func([]byte)) {
 func (t *sseTransport) handleSSEEvent(eventType, data string, onMessage func([]byte)) {
 	switch eventType {
 	case "endpoint":
-		// The server tells us where to POST JSON-RPC requests
+		// The server tells us where to POST JSON-RPC requests.
 		postURL := strings.TrimSpace(data)
 		if !strings.HasPrefix(postURL, "http") {
 			postURL = resolveRelativeURL(t.sseURL, postURL)
+		}
+		// A compromised or malicious upstream could point the POST endpoint at
+		// an arbitrary host — exfiltrating every tool call (params, secrets) or
+		// turning the mesh into an SSRF relay. Only accept an endpoint that
+		// shares the origin of the SSE connection we opened.
+		if !sameOrigin(t.sseURL, postURL) {
+			slog.Warn("MCP client: SSE endpoint origin mismatch — ignoring",
+				"server", t.name, "sse_url", t.sseURL, "endpoint", postURL)
+			return
 		}
 		t.postMu.Lock()
 		alreadySet := t.postURL != ""
@@ -162,6 +172,18 @@ func (t *sseTransport) Close() error {
 		t.resp.Body.Close()
 	}
 	return nil
+}
+
+// sameOrigin reports whether two URLs share scheme, host and port. url.Host
+// includes the port, so comparing scheme + host covers all three. A parse
+// failure on either side is treated as a mismatch (fail closed).
+func sameOrigin(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return ua.Scheme == ub.Scheme && ua.Host == ub.Host
 }
 
 // resolveRelativeURL resolves a relative path against an SSE URL base.

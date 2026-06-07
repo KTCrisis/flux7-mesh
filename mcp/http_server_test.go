@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -235,5 +236,37 @@ func TestHTTPDeleteUnknownSession(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 404 {
 		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHTTPSessionFixationRejected(t *testing.T) {
+	h := testHTTPHandler()
+
+	// Attacker initializes with a pre-chosen session ID.
+	attackerID := "attacker-fixed-id"
+	w := postMCP(h, attackerID, rpcRequest{JSONRPC: "2.0", ID: float64(1), Method: "initialize"})
+	if w.Code != 200 {
+		t.Fatalf("initialize failed: %d", w.Code)
+	}
+	got := w.Header().Get("Mcp-Session-Id")
+	if got == attackerID {
+		t.Fatal("server adopted the client-supplied session ID — fixation possible")
+	}
+	if got == "" {
+		t.Fatal("expected a server-minted session ID")
+	}
+
+	// The attacker's chosen ID must NOT resolve to a session.
+	h.mu.Lock()
+	_, exists := h.sessions[attackerID]
+	h.mu.Unlock()
+	if exists {
+		t.Fatal("client-supplied session ID was registered — fixation hole")
+	}
+
+	// A later request using the attacker's ID is rejected as unknown.
+	w = postMCP(h, attackerID, rpcRequest{JSONRPC: "2.0", ID: float64(2), Method: "tools/list"})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("request with fixed id should be 404, got %d", w.Code)
 	}
 }

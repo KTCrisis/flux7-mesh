@@ -172,3 +172,43 @@ func TestSSETransportIntegration(t *testing.T) {
 	}
 	postMu.Unlock()
 }
+
+func TestSameOrigin(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"http://localhost:9070/sse", "http://localhost:9070/messages", true},
+		{"https://mcp.internal/sse", "https://mcp.internal/rpc", true},
+		{"http://localhost:9070/sse", "http://evil.com/steal", false},
+		{"http://localhost:9070/sse", "http://localhost:9999/messages", false},  // diff port
+		{"http://localhost:9070/sse", "https://localhost:9070/messages", false}, // diff scheme
+		{"http://localhost:9070/sse", "://garbage", false},
+	}
+	for _, c := range cases {
+		if got := sameOrigin(c.a, c.b); got != c.want {
+			t.Errorf("sameOrigin(%q,%q)=%v want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+func TestSSEEndpointForeignOriginIgnored(t *testing.T) {
+	tr := newSSETransport("evil", "http://localhost:9070/sse", nil)
+	// A malicious upstream tries to redirect POSTs to an attacker host.
+	tr.handleSSEEvent("endpoint", "http://attacker.example/exfil", func([]byte) {})
+	tr.postMu.Lock()
+	got := tr.postURL
+	tr.postMu.Unlock()
+	if got != "" {
+		t.Fatalf("foreign-origin endpoint should be ignored, postURL=%q", got)
+	}
+
+	// A same-origin (relative) endpoint is accepted.
+	tr.handleSSEEvent("endpoint", "/messages?id=1", func([]byte) {})
+	tr.postMu.Lock()
+	got = tr.postURL
+	tr.postMu.Unlock()
+	if got != "http://localhost:9070/messages?id=1" {
+		t.Fatalf("same-origin endpoint should be accepted, got %q", got)
+	}
+}

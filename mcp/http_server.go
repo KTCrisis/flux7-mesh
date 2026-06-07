@@ -84,6 +84,13 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 
 	isInit := req.Method == "initialize"
 
+	// Session fixation defence: never adopt a client-supplied session ID on
+	// initialize. The ID is always minted server-side, so an attacker cannot
+	// pre-register an ID a victim might later reuse.
+	if isInit {
+		sessionID = ""
+	}
+
 	if !isInit && sessionID == "" {
 		writeJSONRPCError(w, req.ID, -32600, "Missing Mcp-Session-Id header", http.StatusBadRequest)
 		return
@@ -147,6 +154,8 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 		}
 	}
 
+	// New sessions always get a server-minted, unguessable ID — a
+	// client-supplied ID is never adopted (callers pass "" on initialize).
 	srv := &Server{
 		Registry:         h.Registry,
 		Policy:           h.Policy,
@@ -155,23 +164,11 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 		Handler:          h.Handler,
 		MCPManager:       h.MCPManager,
 		AgentID:          agentID,
-		SessionID:        sessionID,
+		SessionID:        trace.NewID(),
 		SupervisorMode:   h.SupervisorMode,
 		SupervisorAgents: h.SupervisorAgents,
 	}
-
-	// SessionID is set during HandleRequest("initialize") if empty.
-	// We register it after the first initialize call completes. For now,
-	// if a session ID was provided, register it immediately.
-	if sessionID != "" {
-		h.sessions[sessionID] = srv
-	} else {
-		// Defer registration: the caller will call HandleRequest("initialize")
-		// which sets srv.SessionID. We use an AfterInit hook via a wrapper.
-		// Simpler approach: generate the ID now so the session is addressable.
-		srv.SessionID = trace.NewID()
-		h.sessions[srv.SessionID] = srv
-	}
+	h.sessions[srv.SessionID] = srv
 
 	slog.Info("MCP HTTP session created", "session_id", srv.SessionID, "agent", agentID)
 	return srv
