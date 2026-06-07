@@ -51,19 +51,20 @@ type MCPForwarder interface {
 
 // Handler is the HTTP handler for the sidecar proxy.
 type Handler struct {
-	Registry       *registry.Registry
-	Policy         *policy.Engine
-	Traces         *trace.Store
-	Approvals      *approval.Store
-	RateLimiter    *ratelimit.Limiter
-	Grants         *grant.Store
-	Client         *http.Client
-	MCPForwarder   MCPForwarder
-	CLIRunner      *meshexec.Runner
-	SupervisorCfg  config.SupervisorConfig
-	JWTValidator   *auth.Validator
-	AdminToken     string       // guards the control plane; empty = loopback-only
-	MCPHTTPHandler http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
+	Registry         *registry.Registry
+	Policy           *policy.Engine
+	Traces           *trace.Store
+	Approvals        *approval.Store
+	RateLimiter      *ratelimit.Limiter
+	Grants           *grant.Store
+	Client           *http.Client
+	MCPForwarder     MCPForwarder
+	CLIRunner        *meshexec.Runner
+	SupervisorCfg    config.SupervisorConfig
+	JWTValidator     *auth.Validator
+	AllowLegacyAgent bool         // allow plaintext "agent:" identity even when JWT is configured
+	AdminToken       string       // guards the control plane; empty = loopback-only
+	MCPHTTPHandler   http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
 	// Build info (populated from main.go ldflags-injected vars).
 	Version   string
@@ -795,28 +796,7 @@ func extractSessionID(r *http.Request) string {
 // If JWTValidator is configured, Bearer tokens are validated as JWT.
 // Returns (agentID, nil) on success or ("", error) if JWT validation fails.
 func (h *Handler) extractAgentID(r *http.Request) (string, error) {
-	raw := r.Header.Get("Authorization")
-	raw = strings.TrimPrefix(raw, "Bearer ")
-	if raw == "" {
-		return "anonymous", nil
-	}
-
-	// Legacy: "agent:<id>" — no JWT validation
-	if strings.HasPrefix(raw, "agent:") {
-		return strings.TrimPrefix(raw, "agent:"), nil
-	}
-
-	// JWT validation if configured
-	if h.JWTValidator != nil && strings.Count(raw, ".") == 2 {
-		agent, err := h.JWTValidator.ValidateToken(raw)
-		if err != nil {
-			return "", fmt.Errorf("authentication failed: %w", err)
-		}
-		return agent, nil
-	}
-
-	// No JWT config — pass through (backward compat)
-	return raw, nil
+	return auth.ResolveAgentID(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
 }
 
 // --- Approval endpoints ---

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
@@ -25,6 +24,7 @@ type HTTPHandler struct {
 	Handler          *proxy.Handler
 	MCPManager       *Manager
 	JWTValidator     *auth.Validator
+	AllowLegacyAgent bool
 	SupervisorMode   bool
 	SupervisorAgents []string
 
@@ -178,22 +178,7 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 }
 
 func (h *HTTPHandler) extractAgentID(r *http.Request) (string, error) {
-	raw := r.Header.Get("Authorization")
-	if raw == "" {
-		return "anonymous", nil
-	}
-	token := strings.TrimPrefix(raw, "Bearer ")
-	if strings.HasPrefix(token, "agent:") {
-		return strings.TrimPrefix(token, "agent:"), nil
-	}
-	if h.JWTValidator != nil && strings.Count(token, ".") == 2 {
-		agent, err := h.JWTValidator.ValidateToken(token)
-		if err != nil {
-			return "", err
-		}
-		return agent, nil
-	}
-	return "authenticated", nil
+	return auth.ResolveAgentID(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
 }
 
 func writeJSONRPCError(w http.ResponseWriter, id any, code int, msg string, httpStatus int) {

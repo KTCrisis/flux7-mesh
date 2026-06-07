@@ -44,6 +44,10 @@ type JWTConfig struct {
 	Issuer     string `yaml:"issuer,omitempty"`
 	Audience   string `yaml:"audience,omitempty"`
 	AgentClaim string `yaml:"agent_claim,omitempty"` // default: "sub"
+	// AllowLegacy re-enables the plaintext "agent:<id>" identity bypass even
+	// when JWT is configured. Off by default — keeping it off means a
+	// validated JWT is the only accepted identity (no spoofing past crypto).
+	AllowLegacy bool `yaml:"allow_legacy,omitempty"`
 }
 
 // MemoryConfig declares an optional mem7 server for persisting decisions.

@@ -1374,19 +1374,34 @@ func TestJWTAuthInvalidToken(t *testing.T) {
 	}
 }
 
-func TestJWTAuthLegacyAgentPrefix(t *testing.T) {
+func TestJWTAuthLegacyAgentPrefixRejected(t *testing.T) {
 	h, _ := jwtHandler(t)
 	defer h.JWTValidator.Close()
 
-	// agent: prefix should bypass JWT validation
+	// With JWT configured (strict default), the plaintext agent: prefix is a
+	// spoofing attempt and must be rejected — identity must come from a JWT.
 	req := newLoopbackReq("POST", "/tool/test_tool", strings.NewReader(`{"params":{}}`))
 	req.Header.Set("Authorization", "Bearer agent:legacy-bot")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	// Should not be 401
+	if w.Code != 401 {
+		t.Errorf("agent: prefix must be rejected under JWT, got %d", w.Code)
+	}
+}
+
+func TestJWTAuthLegacyAgentPrefixAllowed(t *testing.T) {
+	h, _ := jwtHandler(t)
+	defer h.JWTValidator.Close()
+	h.AllowLegacyAgent = true // explicit escape hatch
+
+	req := newLoopbackReq("POST", "/tool/test_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer agent:legacy-bot")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
 	if w.Code == 401 {
-		t.Error("agent: prefix should bypass JWT validation")
+		t.Error("with AllowLegacyAgent, agent: prefix should be accepted")
 	}
 	entries := h.Traces.Query("", "", 10)
 	if len(entries) > 0 && entries[0].AgentID != "legacy-bot" {

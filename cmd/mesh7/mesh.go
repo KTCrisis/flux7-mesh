@@ -201,7 +201,12 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 			return nil, fmt.Errorf("jwt auth: %w", err)
 		}
 		m.handler.JWTValidator = jwtValidator
-		slog.Info("JWT auth enabled", "jwks_url", cfg.Auth.JWT.JWKSURL)
+		m.handler.AllowLegacyAgent = cfg.Auth.JWT.AllowLegacy
+		if cfg.Auth.JWT.AllowLegacy {
+			slog.Warn("JWT auth enabled but legacy 'agent:' identity bypass is ON — agents can spoof identity", "jwks_url", cfg.Auth.JWT.JWKSURL)
+		} else {
+			slog.Info("JWT auth enabled (strict — legacy 'agent:' bypass off)", "jwks_url", cfg.Auth.JWT.JWKSURL)
+		}
 	}
 
 	// Control-plane auth. MESH_ADMIN_TOKEN env overrides config.
@@ -257,6 +262,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	// MCP Streamable HTTP handler
 	m.mcpHTTP = mcp.NewHTTPHandler(m.reg, m.pol, m.traces, m.approvals, m.handler, m.mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents)
 	m.mcpHTTP.JWTValidator = m.handler.JWTValidator
+	m.mcpHTTP.AllowLegacyAgent = m.handler.AllowLegacyAgent
 	m.handler.MCPHTTPHandler = m.mcpHTTP
 
 	// Policy hot-reload watcher
