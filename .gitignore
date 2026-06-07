@@ -3,7 +3,6 @@
 *.dll
 *.so
 *.dylib
-/agent-mesh
 /mesh
 /mesh7
 .DS_Store
