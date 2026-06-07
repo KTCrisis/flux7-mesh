@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/KTCrisis/flux7-mesh/supervisor"
 )
 
 // Status represents the resolution state of an approval.
@@ -38,19 +41,19 @@ type ResolveOpts struct {
 
 // PendingApproval represents a tool call waiting for human decision.
 type PendingApproval struct {
-	ID          string         `json:"id"`
-	AgentID     string         `json:"agent_id"`
-	Tool        string         `json:"tool"`
-	Params      map[string]any `json:"params"`
-	PolicyRule  string         `json:"policy_rule"`
-	TraceID     string         `json:"trace_id,omitempty"`
-	CallbackURL string         `json:"callback_url,omitempty"`
-	Status      Status         `json:"status"`
-	CreatedAt   time.Time      `json:"created_at"`
-	ResolvedBy  string         `json:"resolved_by,omitempty"`
-	ResolvedAt  time.Time      `json:"resolved_at,omitempty"`
-	Reasoning   string         `json:"reasoning,omitempty"`
-	Confidence  float64        `json:"confidence,omitempty"`
+	ID          string          `json:"id"`
+	AgentID     string          `json:"agent_id"`
+	Tool        string          `json:"tool"`
+	Params      map[string]any  `json:"params"`
+	PolicyRule  string          `json:"policy_rule"`
+	TraceID     string          `json:"trace_id,omitempty"`
+	CallbackURL string          `json:"callback_url,omitempty"`
+	Status      Status          `json:"status"`
+	CreatedAt   time.Time       `json:"created_at"`
+	ResolvedBy  string          `json:"resolved_by,omitempty"`
+	ResolvedAt  time.Time       `json:"resolved_at,omitempty"`
+	Reasoning   string          `json:"reasoning,omitempty"`
+	Confidence  float64         `json:"confidence,omitempty"`
 	Result      chan Resolution `json:"-"`
 }
 
@@ -77,10 +80,28 @@ type Store struct {
 // SetDB attaches a SQLite database for durable persistence.
 func (s *Store) SetDB(db *sql.DB) { s.db = db }
 
+// TryAutoResolveSafe is the injection-guarded form of TryAutoResolve and the
+// only entry point call sites should use. Auto-approval replays a human's past
+// decision on a routine pattern — but if the call's params carry a prompt
+// injection, the pattern is no longer "routine" and must go back to a human.
+// Centralising the guard here keeps every transport (HTTP, MCP stdio, MCP HTTP)
+// consistent instead of each call site remembering to check separately.
+func (s *Store) TryAutoResolveSafe(agentID, tool string, params map[string]any) *Resolution {
+	if supervisor.DetectInjection(params) {
+		slog.Warn("injection risk detected, forcing human review (auto-approve skipped)",
+			"agent", agentID, "tool", tool)
+		return nil
+	}
+	return s.TryAutoResolve(agentID, tool)
+}
+
 // TryAutoResolve checks mem7 for past decisions and returns an auto-resolution
 // if the pattern is clear (enough consistent approvals). Returns nil if the
-// request should be escalated to human/supervisor.
-// When auto-approved, the decision is also written to mem7 for future queries.
+// request should be escalated to human/supervisor. When auto-approved, the
+// decision is also written to mem7 for future queries.
+//
+// Prefer TryAutoResolveSafe at call sites — this form does NOT check for
+// injection in the params.
 func (s *Store) TryAutoResolve(agentID, tool string) *Resolution {
 	if s == nil || s.MemoryReader == nil {
 		return nil

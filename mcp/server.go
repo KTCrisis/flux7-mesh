@@ -30,9 +30,9 @@ type rpcRequest struct {
 }
 
 type rpcResponse struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      any    `json:"id"`
-	Result  any    `json:"result,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id"`
+	Result  any       `json:"result,omitempty"`
 	Error   *rpcError `json:"error,omitempty"`
 }
 
@@ -50,9 +50,9 @@ type MCPTool struct {
 
 // MCPSchema describes the input parameters of an MCP tool.
 type MCPSchema struct {
-	Type       string                `json:"type"`
-	Properties map[string]MCPProp    `json:"properties,omitempty"`
-	Required   []string              `json:"required,omitempty"`
+	Type       string             `json:"type"`
+	Properties map[string]MCPProp `json:"properties,omitempty"`
+	Required   []string           `json:"required,omitempty"`
 }
 
 // MCPProp describes a single property in an MCP tool schema.
@@ -399,9 +399,12 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 		}, nil
 	}
 
-	// Check mem7 for past decisions (auto-approve routine patterns)
+	// Check mem7 for past decisions (auto-approve routine patterns).
+	// TryAutoResolveSafe skips auto-approve when the arguments carry an
+	// injection — the MCP path is the highest-traffic codepath (Claude Code,
+	// Cursor) and the most exposed to indirect prompt injection.
 	if decision.Action == "human_approval" && s.Approvals != nil {
-		if res := s.Approvals.TryAutoResolve(s.AgentID, toolName); res != nil {
+		if res := s.Approvals.TryAutoResolveSafe(s.AgentID, toolName, arguments); res != nil {
 			slog.Info("mem7 auto-approve",
 				"agent", s.AgentID, "tool", toolName, "reason", res.Reasoning)
 			decision.Action = "allow"
