@@ -30,7 +30,7 @@ class TestSchemas:
     def test_generates_qualified_names(self, toolkit):
         schemas = toolkit.schemas()
         assert len(schemas) == 2
-        weather = next(s for s in schemas if s["name"] == "test.get_weather")
+        weather = next(s for s in schemas if s["name"] == "test__get_weather")
         assert weather["description"] == "Get current weather for a city."
         assert weather["input_schema"]["properties"]["city"]["type"] == "string"
         assert weather["input_schema"]["properties"]["units"]["type"] == "string"
@@ -39,7 +39,7 @@ class TestSchemas:
 
     def test_integer_types(self, toolkit):
         schemas = toolkit.schemas()
-        add = next(s for s in schemas if s["name"] == "test.add_numbers")
+        add = next(s for s in schemas if s["name"] == "test__add_numbers")
         assert add["input_schema"]["properties"]["a"]["type"] == "integer"
         assert add["input_schema"]["required"] == ["a", "b"]
 
@@ -52,7 +52,7 @@ class TestSchemas:
             return "pong"
 
         schemas = tk.schemas()
-        assert schemas[0]["name"] == "custom.ping"
+        assert schemas[0]["name"] == "custom__ping"
 
 
 class TestExecute:
@@ -139,7 +139,7 @@ class TestRegister:
 
         tk.register(my_func, "custom_name")
         schemas = tk.schemas()
-        assert schemas[0]["name"] == "test.custom_name"
+        assert schemas[0]["name"] == "test__custom_name"
 
 
 class TestExecuteLocal:
@@ -192,3 +192,18 @@ class TestNamespace:
     def test_unqualify_foreign_namespace(self):
         tk = GovernedToolkit(agent="audit7")
         assert tk._unqualify("other.read_file") == "other.read_file"
+
+
+class TestAPINameRoundTrip:
+    def test_schemas_names_are_claude_api_valid(self, toolkit):
+        import re
+        for s in toolkit.schemas():
+            assert re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", s["name"]), s["name"]
+
+    def test_execute_accepts_api_safe_name(self, toolkit):
+        mock_decision = Decision(action=Action.ALLOW, tool="test.get_weather", result="")
+        with patch.object(toolkit._mesh, "decide", return_value=mock_decision) as mock_decide:
+            d = toolkit.execute("test__get_weather", {"city": "Nice"})
+        # mesh still sees the dotted form for policy evaluation
+        mock_decide.assert_called_once_with("test.get_weather", {"city": "Nice"})
+        assert d.result == "sunny in Nice"

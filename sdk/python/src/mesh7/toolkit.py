@@ -90,6 +90,21 @@ class GovernedToolkit:
             return name[len(prefix):]
         return name
 
+    def _api_name(self, name: str) -> str:
+        """Claude API tool names must match ^[a-zA-Z0-9_-]{1,128}$ — no dots.
+
+        The dotted form stays internal (mesh policy evaluation); the API sees
+        'audit7__read_file' instead of 'audit7.read_file'.
+        """
+        return self._qualify(name).replace(".", "__")
+
+    def _from_api_name(self, name: str) -> str:
+        """Map a Claude-API-safe name back to the dotted form."""
+        prefix = f"{self._namespace}__"
+        if name.startswith(prefix):
+            return f"{self._namespace}.{name[len(prefix):]}"
+        return name
+
     def tool(self, func: Callable) -> Callable:
         """Register a function as a governed tool."""
         self._tools[func.__name__] = func
@@ -104,12 +119,13 @@ class GovernedToolkit:
     def schemas(self) -> list[dict[str, Any]]:
         """Generate the tools[] array for the Claude API messages endpoint.
 
-        Tool names are namespace-qualified (e.g. 'audit7.get_weather').
+        Tool names are namespace-qualified with a Claude-safe separator
+        (e.g. 'audit7__get_weather' — the API rejects dots in tool names).
         """
         result = []
         for name, func in self._tools.items():
             result.append({
-                "name": self._qualify(name),
+                "name": self._api_name(name),
                 "description": (func.__doc__ or "").strip().split("\n")[0],
                 "input_schema": _build_schema(func),
             })
@@ -118,10 +134,11 @@ class GovernedToolkit:
     def execute(self, tool_name: str, tool_input: dict[str, Any]) -> Decision:
         """Execute a tool call with governance: decide via mesh, then run locally.
 
-        Accepts both qualified ('audit7.get_weather') and bare ('get_weather') names.
-        The qualified name is sent to mesh for policy evaluation; the bare name is
-        used for local function lookup.
+        Accepts API-safe ('audit7__get_weather'), qualified ('audit7.get_weather')
+        and bare ('get_weather') names. The qualified name is sent to mesh for
+        policy evaluation; the bare name is used for local function lookup.
         """
+        tool_name = self._from_api_name(tool_name)
         qualified = self._qualify(tool_name)
         local = self._unqualify(tool_name)
         if local not in self._tools:
@@ -144,8 +161,9 @@ class GovernedToolkit:
     def execute_local(self, tool_name: str, tool_input: dict[str, Any]) -> Decision:
         """Execute locally without going through mesh (for tools not proxied).
 
-        Accepts both qualified and bare names.
+        Accepts API-safe, qualified and bare names.
         """
+        tool_name = self._from_api_name(tool_name)
         qualified = self._qualify(tool_name)
         local = self._unqualify(tool_name)
         if local not in self._tools:
