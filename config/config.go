@@ -17,6 +17,7 @@ type Config struct {
 	TraceFile    string            `yaml:"trace_file"`
 	OTELEndpoint string            `yaml:"otel_endpoint"` // "stdout" or "http://localhost:4318" (OTLP HTTP)
 	Auth         AuthConfig        `yaml:"auth"`
+	TLS          TLSConfig         `yaml:"tls,omitempty"`
 	Approval     ApprovalConfig    `yaml:"approval"`
 	Supervisor   SupervisorConfig  `yaml:"supervisor"`
 	Memory       MemoryConfig      `yaml:"memory"`
@@ -36,6 +37,20 @@ type AuthConfig struct {
 	// restricted to loopback callers only. The data plane (tool calls,
 	// /decide, /mcp, /health) is never gated by this.
 	AdminToken string `yaml:"admin_token,omitempty"`
+}
+
+// TLSConfig enables in-binary TLS termination. Leave empty to serve plaintext —
+// the recommended deployment terminates TLS at an ingress / reverse proxy and
+// keeps mesh7 on loopback or an internal network. Set both fields to serve TLS
+// directly (useful for standalone single-host deployments without an ingress).
+type TLSConfig struct {
+	CertFile string `yaml:"cert_file,omitempty"`
+	KeyFile  string `yaml:"key_file,omitempty"`
+}
+
+// Enabled reports whether in-binary TLS is configured.
+func (t TLSConfig) Enabled() bool {
+	return t.CertFile != "" && t.KeyFile != ""
 }
 
 // JWTConfig configures JWT validation against an external IdP.

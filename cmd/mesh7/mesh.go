@@ -316,6 +316,18 @@ func (m *meshState) ServeHTTP() error {
 		srv.Shutdown(context.Background())
 	}()
 
+	if m.cfg.TLS.Enabled() {
+		slog.Info("TLS enabled", "cert", m.cfg.TLS.CertFile)
+		err := srv.ListenAndServeTLS(m.cfg.TLS.CertFile, m.cfg.TLS.KeyFile)
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
+
+	// Plaintext listener. The recommended posture terminates TLS at an ingress
+	// or service mesh; warn so this is a conscious choice, not a silent gap.
+	slog.Warn("serving plaintext (no TLS) — terminate TLS at your ingress, or set tls.cert_file/tls.key_file for standalone; do not expose this port directly")
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

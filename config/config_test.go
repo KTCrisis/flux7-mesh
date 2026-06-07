@@ -552,3 +552,18 @@ func writeTempFile(t *testing.T, content string) string {
 	f.Close()
 	return f.Name()
 }
+
+func TestTLSConfigEnabled(t *testing.T) {
+	if (TLSConfig{}).Enabled() {
+		t.Error("empty TLS config should be disabled")
+	}
+	if (TLSConfig{CertFile: "c.pem"}).Enabled() {
+		t.Error("cert without key should be disabled")
+	}
+	if (TLSConfig{KeyFile: "k.pem"}).Enabled() {
+		t.Error("key without cert should be disabled")
+	}
+	if !(TLSConfig{CertFile: "c.pem", KeyFile: "k.pem"}).Enabled() {
+		t.Error("both cert and key should be enabled")
+	}
+}
