@@ -5,6 +5,7 @@
 *.dylib
 /agent-mesh
 /mesh
+/mesh7
 .DS_Store
 
 # IDE
@@ -42,3 +43,5 @@ state.db
 *.local.yaml
 policies/*.local.yaml
 dist/
+policies/*.yaml
+!policies/default.yaml
