@@ -1,4 +1,4 @@
-"""agent-mesh Python SDK — governance mesh for AI agent tool calls.
+"""flux7-mesh Python SDK — governance mesh for AI agent tool calls.
 
 Usage::
 
@@ -81,7 +81,7 @@ class AgentMesh:
         )
 
     def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Decision:
-        """Execute a tool call through agent-mesh (policy + execute + trace)."""
+        """Execute a tool call through flux7-mesh (policy + execute + trace)."""
         resp = self._session.post(
             f"{self._url}/tool/{name}",
             json=arguments or {},

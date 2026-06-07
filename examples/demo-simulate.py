@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simulate 15 agents calling tools through agent-mesh.
+Simulate 15 agents calling tools through flux7-mesh.
 
 Usage:
     python demo-simulate.py --scenario enterprise
@@ -270,7 +270,7 @@ async def call_tool(
     agent_id: str,
     call: AgentCall,
 ) -> dict:
-    """Make a single tool call through agent-mesh."""
+    """Make a single tool call through flux7-mesh."""
     url = f"{mesh_url}/tool/{call.tool}"
     headers = {"Authorization": f"Bearer agent:{agent_id}"}
     # ollama.generate can queue behind other concurrent requests — allow more time
@@ -347,7 +347,7 @@ async def run_simulation(mesh_url: str, scenario: str):
     demo_dir = "/tmp/demo-enterprise" if scenario == "enterprise" else "/tmp/demo-eda"
 
     print(f"\n{'='*70}")
-    print(f"  agent-mesh demo: {scenario}")
+    print(f"  flux7-mesh demo: {scenario}")
     print(f"  {len(agents)} agents, {sum(len(c) for c in agents.values())} tool calls")
     print(f"  mesh: {mesh_url}")
     print(f"{'='*70}\n")
@@ -405,9 +405,9 @@ async def run_simulation(mesh_url: str, scenario: str):
             health = resp.json()
             print(f"  mesh status: {health.get('status')} — {health.get('tools')} tools\n")
         except Exception as e:
-            print(f"  ERROR: cannot reach agent-mesh at {mesh_url}: {e}")
-            print(f"  Start agent-mesh first:")
-            print(f"    agent-mesh --config examples/demo-{scenario}.yaml\n")
+            print(f"  ERROR: cannot reach flux7-mesh at {mesh_url}: {e}")
+            print(f"  Start flux7-mesh first:")
+            print(f"    mesh7 --config examples/demo-{scenario}.yaml\n")
             return
 
         # Launch all agents in parallel + supervisor
@@ -452,7 +452,7 @@ async def run_simulation(mesh_url: str, scenario: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulate 15 agents through agent-mesh")
+    parser = argparse.ArgumentParser(description="Simulate 15 agents through flux7-mesh")
     parser.add_argument("--scenario", choices=["enterprise", "eda"], default="enterprise")
     parser.add_argument("--mesh", default="http://localhost:9090")
     args = parser.parse_args()

@@ -1,14 +1,14 @@
 """
-Claude Agent SDK example with agent-mesh governance.
+Claude Agent SDK example with flux7-mesh governance.
 
 Demonstrates:
-  - Auto-discovery of tools from agent-mesh
+  - Auto-discovery of tools from flux7-mesh
   - Agentic tool-use loop with Claude
   - human_approval policy (write requires approval)
   - X-Callback-URL for async approval notification
 
 Usage:
-  1. Start agent-mesh:  ./agent-mesh --config examples/agent-sdk/config.yaml
+  1. Start flux7-mesh:  mesh7 --config examples/agent-sdk/config.yaml
   2. Run this agent:    python examples/agent-sdk/agent.py "list files in /tmp/demo, read test.txt, then write a summary"
 
   In another terminal, approve pending requests:
@@ -27,10 +27,10 @@ MESH_URL = os.environ.get("MESH_URL", "http://localhost:9092")
 AGENT_ID = "claude-agent"
 
 
-# --- Tool discovery from agent-mesh ---
+# --- Tool discovery from flux7-mesh ---
 
 def discover_tools() -> list[dict]:
-    """Fetch available tools from agent-mesh and convert to Claude tool format."""
+    """Fetch available tools from flux7-mesh and convert to Claude tool format."""
     r = requests.get(f"{MESH_URL}/tools", timeout=5)
     r.raise_for_status()
     mesh_tools = r.json()
@@ -47,16 +47,16 @@ def discover_tools() -> list[dict]:
     return claude_tools
 
 
-# --- Tool execution through agent-mesh ---
+# --- Tool execution through flux7-mesh ---
 
 def call_tool(name: str, args: dict) -> str:
-    """Call a tool through agent-mesh HTTP API."""
+    """Call a tool through flux7-mesh HTTP API."""
     r = requests.post(
         f"{MESH_URL}/tool/{name}",
         json={"params": args},
         headers={
             "Authorization": f"Bearer agent:{AGENT_ID}",
-            # Agent callback: agent-mesh POSTs here when approval is resolved
+            # Agent callback: flux7-mesh POSTs here when approval is resolved
             # (In a real agent, this would be a real endpoint)
             # "X-Callback-URL": "http://my-agent:8080/hook",
         },
@@ -85,7 +85,7 @@ def call_tool(name: str, args: dict) -> str:
 
 # --- Agentic loop ---
 
-SYSTEM = """You are a helpful assistant with access to filesystem tools through agent-mesh.
+SYSTEM = """You are a helpful assistant with access to filesystem tools through flux7-mesh.
 Some operations (like writing files) may require human approval — if so, tell the user
 and wait for them to approve before retrying. Read operations are always allowed."""
 
@@ -95,7 +95,7 @@ def run(query: str):
     tools = discover_tools()
 
     print(f"\n--- Agent: {AGENT_ID} ---")
-    print(f"--- Tools: {len(tools)} discovered from agent-mesh ---")
+    print(f"--- Tools: {len(tools)} discovered from flux7-mesh ---")
     print(f"--- Query: {query} ---\n")
 
     messages = [{"role": "user", "content": query}]

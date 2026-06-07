@@ -1,5 +1,5 @@
 port: 9091
-trace_file: /home/fluxart/agent-mesh/traces-travel.jsonl
+trace_file: /home/fluxart/flux7-mesh/traces-travel.jsonl
 
 mcp_servers:
   - name: weather

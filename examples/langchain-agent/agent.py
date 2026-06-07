@@ -1,12 +1,12 @@
 """
-LangChain agent that calls tools through agent-mesh.
+LangChain agent that calls tools through flux7-mesh.
 
 Demonstrates cross-agent governance: this agent (langchain-bot) has
 read-only access to the filesystem, while Claude Code has full access.
 Same tools, different policies.
 
 Usage:
-  1. Start agent-mesh:  ./agent-mesh --config examples/langchain-agent/config.yaml --port 9091
+  1. Start flux7-mesh:  mesh7 --config examples/langchain-agent/config.yaml --port 9091
   2. Run this agent:    python examples/langchain-agent/agent.py
 
 Requires: Ollama running (local or cloud) with env vars set
@@ -26,7 +26,7 @@ AGENT_ID = "langchain-bot"
 
 
 def call_mesh(tool_name: str, params: dict) -> str:
-    """Call a tool through agent-mesh HTTP API."""
+    """Call a tool through flux7-mesh HTTP API."""
     try:
         r = requests.post(
             f"{MESH_URL}/tool/{tool_name}",
@@ -36,7 +36,7 @@ def call_mesh(tool_name: str, params: dict) -> str:
         )
         return json.dumps(r.json(), indent=2)
     except requests.ConnectionError:
-        return "Error: agent-mesh is not running on port 9091"
+        return "Error: flux7-mesh is not running on port 9091"
 
 
 @tool
@@ -53,7 +53,7 @@ def read_file(path: str) -> str:
 
 @tool
 def write_file(path: str, content: str) -> str:
-    """Write content to a file. This will be DENIED by agent-mesh policy."""
+    """Write content to a file. This will be DENIED by flux7-mesh policy."""
     return call_mesh("filesystem.write_file", {"path": path, "content": content})
 
 

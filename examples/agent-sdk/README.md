@@ -1,6 +1,6 @@
-# Claude agent through agent-mesh
+# Claude agent through flux7-mesh
 
-Demonstrates Claude (Anthropic API) as an autonomous agent, governed by agent-mesh with human approval on write operations.
+Demonstrates Claude (Anthropic API) as an autonomous agent, governed by flux7-mesh with human approval on write operations.
 
 ## What it shows
 
@@ -22,7 +22,7 @@ pip install -r requirements.txt
 
 # Create test data
 mkdir -p /tmp/demo
-echo "hello from agent-mesh" > /tmp/demo/test.txt
+echo "hello from flux7-mesh" > /tmp/demo/test.txt
 
 # Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -30,10 +30,10 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 ## Run
 
-Terminal 1 — start agent-mesh:
+Terminal 1 — start flux7-mesh:
 
 ```bash
-./agent-mesh --config examples/agent-sdk/config.yaml
+mesh7 --config examples/agent-sdk/config.yaml
 ```
 
 Terminal 2 — watch for approvals:
@@ -58,7 +58,7 @@ Agent: I'll start by listing the files...
 
 Agent: Now let me read the file...
   -> filesystem.read_file({"path": "/tmp/demo/test.txt"})
-  <- hello from agent-mesh                                  # allow
+  <- hello from flux7-mesh                                  # allow
 
 Agent: Let me write a summary...
   -> filesystem.write_file({"path": "/tmp/demo/summary.txt", ...})
@@ -72,9 +72,9 @@ In terminal 2 (`mesh watch`), you'll see the approval request and can approve it
 
 ## How it works
 
-1. **Tool discovery** — the agent calls `GET /tools` to get all available tools from agent-mesh
+1. **Tool discovery** — the agent calls `GET /tools` to get all available tools from flux7-mesh
 2. **Agentic loop** — Claude decides which tools to call based on the user's query
-3. **Policy enforcement** — agent-mesh evaluates each tool call against the `claude-agent` policy
+3. **Policy enforcement** — flux7-mesh evaluates each tool call against the `claude-agent` policy
 4. **Approval flow** — write operations return 202 (approval required), the agent tells the user
 5. **Auth** — the agent identifies as `claude-agent` via `Authorization: Bearer agent:claude-agent`
 

@@ -1,4 +1,4 @@
-"""Tests for the agent-mesh Python SDK client."""
+"""Tests for the flux7-mesh Python SDK client."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

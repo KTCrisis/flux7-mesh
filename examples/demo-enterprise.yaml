@@ -4,11 +4,11 @@
 # security, tech writers, and a supervisor agent.
 #
 # Run:
-#   agent-mesh --config examples/demo-enterprise.yaml
+#   mesh7 --config examples/demo-enterprise.yaml
 #   python examples/demo-simulate.py --scenario enterprise
 
 port: 9090
-trace_file: /home/fluxart/agent-mesh/traces.jsonl
+trace_file: /home/fluxart/flux7-mesh/traces.jsonl
 
 supervisor:
   enabled: true

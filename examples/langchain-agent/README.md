@@ -1,4 +1,4 @@
-# LangChain agent through agent-mesh
+# LangChain agent through flux7-mesh
 
 Demonstrates cross-agent governance: a LangChain agent (`langchain-bot`) has read-only access to the filesystem, while Claude Code has full access. Same tools, different policies.
 
@@ -11,7 +11,7 @@ Demonstrates cross-agent governance: a LangChain agent (`langchain-bot`) has rea
 | `filesystem.write_file` | allow | **deny** |
 | `filesystem.move_file` | allow | **deny** |
 
-This is the core agent-mesh value prop: **same tools, per-agent policies, zero code change on the agent side**.
+This is the core flux7-mesh value prop: **same tools, per-agent policies, zero code change on the agent side**.
 
 ## Setup
 
@@ -23,16 +23,16 @@ pip install -r requirements.txt
 
 # Create test data
 mkdir -p /tmp/demo
-echo "hello from agent-mesh" > /tmp/demo/test.txt
+echo "hello from flux7-mesh" > /tmp/demo/test.txt
 ```
 
 ## Run
 
-Terminal 1 — start agent-mesh:
+Terminal 1 — start flux7-mesh:
 
 ```bash
-cd /path/to/agent-mesh
-./agent-mesh --config examples/langchain-agent/config.yaml --port 9091
+cd /path/to/flux7-mesh
+mesh7 --config examples/langchain-agent/config.yaml --port 9091
 ```
 
 Terminal 2 — run the agent:
@@ -54,11 +54,11 @@ python examples/langchain-agent/agent.py "List files in /tmp/demo, read test.txt
 
 ```
 list_directory(/tmp/demo)  → allow  → [FILE] test.txt
-read_file(/tmp/demo/test.txt) → allow  → "hello from agent-mesh"
+read_file(/tmp/demo/test.txt) → allow  → "hello from flux7-mesh"
 write_file(/tmp/demo/new_file.txt) → deny   → policy=langchain-bot action=deny
 ```
 
-Read passes, write gets denied. Check the agent-mesh terminal for the policy logs.
+Read passes, write gets denied. Check the flux7-mesh terminal for the policy logs.
 
 ## How it works
 

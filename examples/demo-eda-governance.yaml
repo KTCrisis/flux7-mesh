@@ -5,7 +5,7 @@
 # deploy to registries, and maintain catalogs.
 #
 # Run:
-#   agent-mesh --config examples/demo-eda-governance.yaml
+#   mesh7 --config examples/demo-eda-governance.yaml
 #   python examples/demo-simulate.py --scenario eda
 
 port: 9090
