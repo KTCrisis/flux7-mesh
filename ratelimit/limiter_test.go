@@ -151,3 +151,44 @@ func TestStats(t *testing.T) {
 
 	_ = time.Now() // keep import
 }
+
+func TestGCEvictsIdleAgentsRegardlessOfTotal(t *testing.T) {
+	l := New()
+	defer l.Close()
+	l.SetLimit("p", Limit{MaxPerMinute: 100, MaxTotal: 1000})
+
+	// An agent that made calls (total > 0) but is now idle must be evicted —
+	// the old gc kept any agent with total > 0 forever (unbounded growth).
+	_ = l.Check("ghost", "p", "t", "x")
+	l.Record("ghost", "t", "x")
+	l.agents["ghost"].lastSeen = time.Now().Add(-5 * time.Minute) // simulate idle
+
+	l.gc()
+
+	l.mu.Lock()
+	_, exists := l.agents["ghost"]
+	n := len(l.agents)
+	l.mu.Unlock()
+	if exists {
+		t.Error("idle agent with total>0 should be evicted")
+	}
+	if n != 0 {
+		t.Errorf("agents map = %d, want 0", n)
+	}
+}
+
+func TestMaxAgentsCapEvictsOldest(t *testing.T) {
+	l := New()
+	defer l.Close()
+	// Can't realistically insert maxAgents here; verify evictOldest picks the
+	// least-recently-seen entry.
+	l.agents["old"] = &agentState{lastSeen: time.Now().Add(-time.Hour)}
+	l.agents["new"] = &agentState{lastSeen: time.Now()}
+	l.evictOldest()
+	if _, ok := l.agents["old"]; ok {
+		t.Error("evictOldest should remove the least-recently-seen agent")
+	}
+	if _, ok := l.agents["new"]; !ok {
+		t.Error("evictOldest should keep the recently-seen agent")
+	}
+}

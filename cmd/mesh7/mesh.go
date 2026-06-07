@@ -215,6 +215,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		adminToken = env
 	}
 	m.handler.AdminToken = adminToken
+	m.handler.RequireAuth = cfg.Auth.RequireAuthentication
 	if adminToken != "" {
 		slog.Info("control plane: admin token required")
 	} else {

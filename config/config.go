@@ -37,6 +37,12 @@ type AuthConfig struct {
 	// restricted to loopback callers only. The data plane (tool calls,
 	// /decide, /mcp, /health) is never gated by this.
 	AdminToken string `yaml:"admin_token,omitempty"`
+	// RequireAuthentication rejects data-plane requests with no credentials
+	// (agent resolves to "anonymous") with 401 instead of letting the policy
+	// engine fail closed. Off by default — tool calls are already governed by
+	// policy; turning this on also stops unauthenticated registry enumeration
+	// via /tools and /mcp-servers.
+	RequireAuthentication bool `yaml:"require_authentication,omitempty"`
 }
 
 // TLSConfig enables in-binary TLS termination. Leave empty to serve plaintext —

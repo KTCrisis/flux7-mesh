@@ -1525,3 +1525,44 @@ func newLoopbackReq(method, target string, body io.Reader) *http.Request {
 	r.RemoteAddr = "127.0.0.1:12345"
 	return r
 }
+
+func TestRequireAuthRejectsAnonymousDataPlane(t *testing.T) {
+	handler, _ := setupHandler(t)
+	handler.RequireAuth = true
+
+	// Anonymous tool call → 401
+	req := newLoopbackReq("POST", "/tool/get_pet", strings.NewReader(`{"params":{}}`))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("anonymous /tool with RequireAuth = %d, want 401", w.Code)
+	}
+
+	// Anonymous /tools enumeration → 401
+	req = newLoopbackReq("GET", "/tools", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("anonymous /tools with RequireAuth = %d, want 401", w.Code)
+	}
+
+	// With an identity → allowed
+	req = newLoopbackReq("POST", "/tool/get_pet", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer agent:known")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code == 401 {
+		t.Error("identified agent should not be rejected under RequireAuth")
+	}
+}
+
+func TestRequireAuthOffAllowsAnonymous(t *testing.T) {
+	handler, _ := setupHandler(t)
+	// default RequireAuth false → anonymous /tools works (current behavior)
+	req := newLoopbackReq("GET", "/tools", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Errorf("anonymous /tools without RequireAuth = %d, want 200", w.Code)
+	}
+}

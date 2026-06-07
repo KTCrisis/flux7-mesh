@@ -63,6 +63,7 @@ type Handler struct {
 	SupervisorCfg    config.SupervisorConfig
 	JWTValidator     *auth.Validator
 	AllowLegacyAgent bool         // allow plaintext "agent:" identity even when JWT is configured
+	RequireAuth      bool         // reject anonymous data-plane callers with 401
 	AdminToken       string       // guards the control plane; empty = loopback-only
 	MCPHTTPHandler   http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
@@ -145,6 +146,21 @@ func (h *Handler) admin(r *http.Request, w http.ResponseWriter, next func(http.R
 	writeJSON(w, 401, map[string]string{"error": "control plane requires admin authorization"})
 }
 
+// requireAuthOK enforces the optional data-plane authentication gate. It returns
+// true when the request may proceed. When RequireAuth is on and the caller has
+// no usable identity (anonymous), it writes 401 and returns false.
+func (h *Handler) requireAuthOK(w http.ResponseWriter, r *http.Request) bool {
+	if !h.RequireAuth {
+		return true
+	}
+	agentID, err := h.extractAgentID(r)
+	if err != nil || agentID == "anonymous" {
+		writeJSON(w, 401, map[string]string{"error": "authentication required"})
+		return false
+	}
+	return true
+}
+
 func (h *Handler) adminAuthorized(r *http.Request) bool {
 	if h.AdminToken != "" {
 		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -173,6 +189,10 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	agentID, jwtErr := h.extractAgentID(r)
 	if jwtErr != nil {
 		writeJSON(w, 401, map[string]string{"error": jwtErr.Error()})
+		return
+	}
+	if h.RequireAuth && agentID == "anonymous" {
+		writeJSON(w, 401, map[string]string{"error": "authentication required"})
 		return
 	}
 	traceID := extractTraceID(r)
@@ -449,6 +469,10 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if h.RequireAuth && agentID == "anonymous" {
+		writeJSON(w, 401, map[string]any{"error": "authentication required"})
+		return
+	}
 	toolName := req.Tool
 	if toolName == "" {
 		writeJSON(w, 400, map[string]any{"error": "tool field required"})
@@ -636,7 +660,10 @@ func (h *Handler) forwardCLI(tool *registry.Tool, params map[string]any) (any, i
 	return result, statusCode, nil
 }
 
-func (h *Handler) handleListTools(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuthOK(w, r) {
+		return
+	}
 	writeJSON(w, 200, h.Registry.All())
 }
 
@@ -662,7 +689,10 @@ func (h *Handler) handleOTELTraces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, trace.EntriesToOTLP(entries, "flux7-mesh"))
 }
 
-func (h *Handler) handleMCPServers(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) handleMCPServers(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuthOK(w, r) {
+		return
+	}
 	if h.MCPForwarder == nil {
 		writeJSON(w, 200, []any{})
 		return

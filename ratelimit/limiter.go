@@ -21,10 +21,16 @@ type Limiter struct {
 }
 
 type agentState struct {
-	calls  []time.Time // timestamps for sliding window
-	total  int
-	recent []recentCall // last N calls for loop detection
+	calls    []time.Time // timestamps for sliding window
+	total    int
+	recent   []recentCall // last N calls for loop detection
+	lastSeen time.Time    // for idle eviction (bounds map under self-declared IDs)
 }
+
+// maxAgents bounds the tracked-agent map. Agent IDs are self-declared in
+// non-JWT mode, so without a cap an attacker could enumerate unique IDs and
+// grow the map until OOM. When full, the least-recently-seen agent is evicted.
+const maxAgents = 50000
 
 type recentCall struct {
 	tool   string
@@ -80,6 +86,7 @@ func (l *Limiter) Check(agentID, policyName, toolName, paramsKey string) error {
 
 	state := l.getOrCreate(agentID)
 	now := time.Now()
+	state.lastSeen = now
 
 	// 1. Check total budget
 	if limit.MaxTotal > 0 && state.total >= limit.MaxTotal {
@@ -122,6 +129,7 @@ func (l *Limiter) Record(agentID, toolName, paramsKey string) {
 
 	state := l.getOrCreate(agentID)
 	now := time.Now()
+	state.lastSeen = now
 
 	state.calls = append(state.calls, now)
 	state.total++
@@ -158,8 +166,8 @@ func (l *Limiter) Stats(agentID, policyName string) map[string]any {
 	}
 
 	stats := map[string]any{
-		"total_calls":     state.total,
-		"calls_last_min":  callsLastMin,
+		"total_calls":    state.total,
+		"calls_last_min": callsLastMin,
 	}
 	if limit.MaxPerMinute > 0 {
 		stats["max_per_minute"] = limit.MaxPerMinute
@@ -175,10 +183,27 @@ func (l *Limiter) Stats(agentID, policyName string) map[string]any {
 func (l *Limiter) getOrCreate(agentID string) *agentState {
 	state, ok := l.agents[agentID]
 	if !ok {
+		if len(l.agents) >= maxAgents {
+			l.evictOldest()
+		}
 		state = &agentState{}
 		l.agents[agentID] = state
 	}
 	return state
+}
+
+// evictOldest removes the least-recently-seen agent. Caller holds l.mu.
+func (l *Limiter) evictOldest() {
+	var oldestID string
+	var oldest time.Time
+	for id, st := range l.agents {
+		if oldestID == "" || st.lastSeen.Before(oldest) {
+			oldestID, oldest = id, st.lastSeen
+		}
+	}
+	if oldestID != "" {
+		delete(l.agents, oldestID)
+	}
 }
 
 // gc removes call timestamps older than 2 minutes.
@@ -205,8 +230,11 @@ func (l *Limiter) gc() {
 		}
 		state.recent = freshRecent
 
-		// Remove empty agents (but keep total counter)
-		if len(state.calls) == 0 && len(state.recent) == 0 && state.total == 0 {
+		// Evict agents idle past the cutoff, regardless of their total counter.
+		// The previous `state.total == 0` guard meant any agent that ever made
+		// a call was kept forever — an unbounded-growth DoS under self-declared
+		// agent IDs. A returning idle agent simply gets a fresh budget.
+		if state.lastSeen.Before(cutoff) {
 			delete(l.agents, id)
 		}
 	}
