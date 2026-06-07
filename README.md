@@ -24,7 +24,7 @@ Works with Claude Code, Cursor, Anthropic Managed Agents, LangChain, CrewAI, or 
 - [Architecture](#architecture)
 - [Install](#install)
 - [Quick start](#quick-start)
-- [Config reference](#config-reference) — MCP servers, OpenAPI, CLI tools, policies, supervisor
+- [Config reference](#config-reference) — MCP servers, OpenAPI, CLI tools, policies, supervisor, auth
 - [Features](#features) — approval, grants, rate limiting, tracing, OTEL, supervisor
 - [Commands & flags](#commands--flags)
 - [API](#api)
@@ -412,6 +412,39 @@ supervisor:
 ```
 
 The auto-approve is a pre-filter (Level 1). If it can't resolve, the request proceeds to the external supervisor (if running) or human. If mem7 is down, the request is escalated — never blocked. See [docs/mem7-auto-approve.md](docs/mem7-auto-approve.md) for a step-by-step example.
+
+### Authentication
+
+Two planes, two guards:
+
+```yaml
+auth:
+  # Control plane (traces, grants, approvals, policies, sessions, metrics).
+  # When set, these endpoints require `Authorization: Bearer <token>`.
+  # When empty, they are restricted to loopback callers only.
+  # MESH_ADMIN_TOKEN env overrides this value.
+  admin_token: "a-long-random-secret"
+
+  # Data plane: validate agent identity via JWT against an external IdP.
+  jwt:
+    jwks_url: https://idp.example.com/.well-known/jwks.json
+    issuer: https://idp.example.com      # optional
+    audience: mesh7                      # optional
+    agent_claim: sub                     # claim used as agent id (default: sub)
+    allow_legacy: false                  # keep plaintext "agent:<id>" off when JWT is on
+
+  # Reject data-plane requests with no credentials (401) instead of letting
+  # them resolve to "anonymous" and fail closed at the policy engine.
+  require_authentication: false
+```
+
+| Setting | Guards | Default behavior when unset |
+|---------|--------|------------------------------|
+| `admin_token` | Control plane — a caller here can mint grants and resolve approvals, overriding what policies enforce | Loopback-only |
+| `jwt` | Data-plane identity — cryptographic agent id instead of the spoofable `agent:<id>` header | Plaintext identity accepted |
+| `require_authentication` | Anonymous access to `/tools` and `/mcp-servers` enumeration | Anonymous allowed, governed by policy |
+
+The data plane (tool calls, `/decide`, `/mcp`, `/health`) is never gated by `admin_token`. Details: [control-plane auth](https://docs.flux7.art/mesh7/control-plane-auth/) and [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/).
 
 ### Other settings
 
