@@ -4,14 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/KTCrisis/flux7-mesh/internal/ssrf"
 )
+
+// specClient fetches OpenAPI specs through an SSRF-guarded client so a spec URL
+// (from config or the --spec flag) cannot be pointed at internal services or a
+// cloud metadata endpoint.
+var specClient = ssrf.Client(30 * time.Second)
 
 // LoadOpenAPI fetches an OpenAPI 2.0/3.0 spec from a URL and extracts tools.
 func (r *Registry) LoadOpenAPI(specURL string, backendURL string, headers map[string]string) error {
-	resp, err := http.Get(specURL)
+	if err := ssrf.CheckURL(specURL); err != nil {
+		return fmt.Errorf("spec url: %w", err)
+	}
+	resp, err := specClient.Get(specURL)
 	if err != nil {
 		return fmt.Errorf("fetch spec: %w", err)
 	}

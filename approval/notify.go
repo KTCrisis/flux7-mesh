@@ -8,19 +8,27 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/KTCrisis/flux7-mesh/internal/ssrf"
 )
 
 // Notifier sends webhook notifications for approval events.
 type Notifier struct {
-	client    *http.Client
-	notifyURL string // config: POST on new pending (for humans)
+	client     *http.Client // operator-configured notify_url (trusted)
+	safeClient *http.Client // agent-supplied callback URLs (SSRF-guarded)
+	notifyURL  string       // config: POST on new pending (for humans)
 }
 
 // NewNotifier creates a notifier. notifyURL can be empty to disable.
+// The operator-configured notify_url may legitimately point at localhost (a
+// local notifier), so it uses a plain client. Agent-supplied callback URLs go
+// through an SSRF-guarded client whose dial-time check also defeats DNS
+// rebinding.
 func NewNotifier(notifyURL string) *Notifier {
 	return &Notifier{
-		client:    &http.Client{Timeout: 10 * time.Second},
-		notifyURL: notifyURL,
+		client:     &http.Client{Timeout: 10 * time.Second},
+		safeClient: ssrf.Client(10 * time.Second),
+		notifyURL:  notifyURL,
 	}
 }
 
@@ -50,7 +58,7 @@ func (n *Notifier) OnSubmit(pa *PendingApproval) {
 		PolicyRule: pa.PolicyRule,
 		Timestamp:  pa.CreatedAt,
 	}
-	go n.postUnchecked(n.notifyURL, payload)
+	go n.post(n.client, n.notifyURL, payload)
 }
 
 // OnResolve fires the callback to the agent (if X-Callback-URL was set).
@@ -73,16 +81,16 @@ func (n *Notifier) OnResolve(pa *PendingApproval, res Resolution) {
 		ResolvedBy: res.ResolvedBy,
 		Timestamp:  res.ResolvedAt,
 	}
-	go n.postUnchecked(pa.CallbackURL, payload)
+	go n.post(n.safeClient, pa.CallbackURL, payload)
 }
 
-func (n *Notifier) postUnchecked(rawURL string, payload notifyPayload) {
+func (n *Notifier) post(client *http.Client, rawURL string, payload notifyPayload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		slog.Error("notify marshal failed", "error", err)
 		return
 	}
-	resp, err := n.client.Post(rawURL, "application/json", bytes.NewReader(body))
+	resp, err := client.Post(rawURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		slog.Error("notify failed", "url", rawURL, "event", payload.Event, "error", err)
 		return
