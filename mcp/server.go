@@ -115,11 +115,12 @@ type Server struct {
 	SupervisorAgents []string // agent ID globs allowed to see approval tools in supervisor mode
 }
 
-// canManageGrants reports whether the current agent may create or revoke
-// grants over MCP. Grants bypass human_approval, so minting them is an
-// operator privilege — reserved to declared supervisor agents. With no
-// supervisor configured, no MCP agent can mutate grants (HTTP API only).
-func (s *Server) canManageGrants() bool {
+// isSupervisorAgent reports whether the current agent is a declared supervisor
+// (SupervisorAgents glob). Supervisor agents are the only MCP callers allowed to
+// mutate the governance plane — create/revoke grants and resolve approvals —
+// because those actions bypass human_approval. With no supervisor configured,
+// no MCP agent can; operators use the loopback/admin-gated HTTP API instead.
+func (s *Server) isSupervisorAgent() bool {
 	return match.GlobAny(s.SupervisorAgents, s.AgentID)
 }
 
@@ -250,8 +251,10 @@ func (s *Server) handleToolsList() map[string]any {
 		})
 	}
 
-	// Append virtual approval tools (hidden in supervisor mode, unless agent is a declared supervisor)
-	if !s.SupervisorMode || match.GlobAny(s.SupervisorAgents, s.AgentID) {
+	// Append virtual approval tools — operator actions that resolve the
+	// human_approval gate, so only declared supervisor agents may see/call
+	// them. Everyone else resolves approvals via the loopback/admin HTTP API.
+	if s.isSupervisorAgent() {
 		mcpTools = append(mcpTools, MCPTool{
 			Name:        "approval.resolve",
 			Description: "Approve or deny a pending approval request",
@@ -288,7 +291,7 @@ func (s *Server) handleToolsList() map[string]any {
 	// privilege-escalation hole (it would neutralise its own human_approval
 	// rules). These are operator actions: reserved to declared supervisor
 	// agents over MCP; everyone else uses the authenticated HTTP API.
-	if s.canManageGrants() {
+	if s.isSupervisorAgent() {
 		mcpTools = append(mcpTools, MCPTool{
 			Name:        "grant.create",
 			Description: "Create a temporal grant — temporarily allow a tool pattern without approval. Like sudo for agents. Supervisor/operator only.",
@@ -341,24 +344,28 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 	// Virtual tools — handled before registry lookup, no policy evaluation
 	switch toolName {
 	case "approval.resolve":
-		if s.SupervisorMode && !match.GlobAny(s.SupervisorAgents, s.AgentID) {
-			return nil, &rpcError{Code: -32601, Message: "approval.resolve is disabled — supervisor mode is active, approvals are handled by the external supervisor"}
+		// Resolving an approval IS the human gate. Letting any agent call it
+		// lets a constrained agent approve its own (or another's) pending
+		// request — the twin of the grant.create self-escalation. Restrict to
+		// declared supervisor agents; everyone else uses the HTTP admin API.
+		if !s.isSupervisorAgent() {
+			return nil, &rpcError{Code: -32601, Message: "approval.resolve is operator-only — not callable by this agent. Use the HTTP API or a declared supervisor agent."}
 		}
 		return s.handleApprovalResolve(arguments)
 	case "approval.pending":
-		if s.SupervisorMode && !match.GlobAny(s.SupervisorAgents, s.AgentID) {
-			return nil, &rpcError{Code: -32601, Message: "approval.pending is disabled — supervisor mode is active"}
+		if !s.isSupervisorAgent() {
+			return nil, &rpcError{Code: -32601, Message: "approval.pending is operator-only — not callable by this agent. Use the HTTP API or a declared supervisor agent."}
 		}
 		return s.handleApprovalPending()
 	case "grant.create":
-		if !s.canManageGrants() {
+		if !s.isSupervisorAgent() {
 			return nil, &rpcError{Code: -32601, Message: "grant.create is operator-only — not callable by this agent. Use the HTTP API or a declared supervisor agent."}
 		}
 		return s.handleGrantCreate(arguments)
 	case "grant.list":
 		return s.handleGrantList()
 	case "grant.revoke":
-		if !s.canManageGrants() {
+		if !s.isSupervisorAgent() {
 			return nil, &rpcError{Code: -32601, Message: "grant.revoke is operator-only — not callable by this agent. Use the HTTP API or a declared supervisor agent."}
 		}
 		return s.handleGrantRevoke(arguments)

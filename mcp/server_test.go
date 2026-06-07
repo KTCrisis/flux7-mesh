@@ -119,10 +119,10 @@ func TestServerToolsList(t *testing.T) {
 
 	result, _ := responses[0].Result.(map[string]any)
 	tools, _ := result["tools"].([]any)
-	// Normal agent: 2 registry + 2 approval + grant.list + mesh.catalog = 6.
-	// grant.create/grant.revoke are operator-only and hidden here.
-	if len(tools) != 6 {
-		t.Errorf("tools = %d, want 6", len(tools))
+	// Normal (non-supervisor) agent: 2 registry + grant.list + mesh.catalog = 4.
+	// approval.* and grant.create/revoke are operator-only and hidden here.
+	if len(tools) != 4 {
+		t.Errorf("tools = %d, want 4", len(tools))
 	}
 }
 
@@ -290,6 +290,9 @@ func approvalServer() *Server {
 		Approvals: approval.NewStore(5 * time.Second),
 		Handler:   handler,
 		AgentID:   "claude",
+		// approval.resolve/pending are supervisor-only; these tests exercise
+		// the resolution mechanism, so the test agent is a declared supervisor.
+		SupervisorAgents: []string{"claude"},
 	}
 }
 
@@ -703,7 +706,7 @@ func TestUpstreamSchemaPassthrough(t *testing.T) {
 	}
 	var parsed struct {
 		Tools []struct {
-			Name        string                     `json:"name"`
+			Name        string `json:"name"`
 			InputSchema struct {
 				Type       string                     `json:"type"`
 				Properties map[string]json.RawMessage `json:"properties"`
@@ -879,5 +882,32 @@ func TestSupervisorAgentsNonMatchBlocked(t *testing.T) {
 	}})
 	if resp.Error == nil {
 		t.Error("non-supervisor agent should be rejected for approval.resolve")
+	}
+}
+
+// TestApprovalResolveBlockedForNormalAgent is the twin of the grant.create
+// guard: a non-supervisor agent must not be able to resolve approvals (it would
+// let it approve its own human_approval requests).
+func TestApprovalResolveBlockedForNormalAgent(t *testing.T) {
+	s := approvalServer()
+	s.SupervisorAgents = nil // normal agent, no supervisor configured
+	s.AgentID = "worker-bot"
+
+	// Not listed
+	resp := s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+	data, _ := json.Marshal(resp.Result)
+	if strings.Contains(string(data), "approval.resolve") {
+		t.Error("normal agent should not see approval.resolve")
+	}
+	if strings.Contains(string(data), "approval.pending") {
+		t.Error("normal agent should not see approval.pending")
+	}
+
+	// Not callable (hiding is not enforcement)
+	resp = s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: map[string]any{
+		"name": "approval.resolve", "arguments": map[string]any{"id": "abcd1234", "decision": "approve"},
+	}})
+	if resp.Error == nil {
+		t.Error("normal agent must be rejected calling approval.resolve — self-approval hole")
 	}
 }
