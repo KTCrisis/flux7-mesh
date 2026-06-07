@@ -10,6 +10,7 @@ import (
 
 	"github.com/KTCrisis/flux7-mesh/approval"
 	"github.com/KTCrisis/flux7-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/grant"
 	"github.com/KTCrisis/flux7-mesh/policy"
 	"github.com/KTCrisis/flux7-mesh/proxy"
 	"github.com/KTCrisis/flux7-mesh/registry"
@@ -118,9 +119,10 @@ func TestServerToolsList(t *testing.T) {
 
 	result, _ := responses[0].Result.(map[string]any)
 	tools, _ := result["tools"].([]any)
-	// 2 registry tools + 2 virtual approval tools + 3 virtual grant tools + 1 mesh.catalog
-	if len(tools) != 8 {
-		t.Errorf("tools = %d, want 8", len(tools))
+	// Normal agent: 2 registry + 2 approval + grant.list + mesh.catalog = 6.
+	// grant.create/grant.revoke are operator-only and hidden here.
+	if len(tools) != 6 {
+		t.Errorf("tools = %d, want 6", len(tools))
 	}
 }
 
@@ -797,6 +799,63 @@ func TestSupervisorAgentsWhitelist(t *testing.T) {
 	}})
 	if resp.Error != nil {
 		t.Errorf("supervisor agent should access approval.pending, got error: %s", resp.Error.Message)
+	}
+}
+
+func TestGrantCreateBlockedForNormalAgent(t *testing.T) {
+	s := testServer()
+	s.AgentID = "worker-agent"
+	s.Handler.Grants = grant.NewStore()
+
+	// Not listed
+	resp := s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+	data, _ := json.Marshal(resp.Result)
+	if strings.Contains(string(data), "grant.create") {
+		t.Error("normal agent should not see grant.create")
+	}
+	if strings.Contains(string(data), "grant.revoke") {
+		t.Error("normal agent should not see grant.revoke")
+	}
+	// grant.list stays visible (read-only)
+	if !strings.Contains(string(data), "grant.list") {
+		t.Error("grant.list should remain visible to all agents")
+	}
+
+	// Not callable even if invoked directly (hiding is not enforcement)
+	resp = s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: map[string]any{
+		"name": "grant.create", "arguments": map[string]any{"tools": "*", "duration": "24h"},
+	}})
+	if resp.Error == nil {
+		t.Error("normal agent must be rejected when calling grant.create — self-escalation hole")
+	}
+	if s.Handler.Grants.Check("worker-agent", "anything") != nil {
+		t.Error("no grant should have been created for a blocked agent")
+	}
+}
+
+func TestGrantCreateAllowedForSupervisor(t *testing.T) {
+	s := testServer()
+	s.SupervisorAgents = []string{"supervisor-*"}
+	s.AgentID = "supervisor-claude"
+	s.Handler.Grants = grant.NewStore()
+
+	resp := s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 1, Method: "tools/list"})
+	data, _ := json.Marshal(resp.Result)
+	if !strings.Contains(string(data), "grant.create") {
+		t.Error("supervisor agent should see grant.create")
+	}
+
+	// Supervisor grants on behalf of another agent
+	resp = s.HandleRequest(rpcRequest{JSONRPC: "2.0", ID: 2, Method: "tools/call", Params: map[string]any{
+		"name": "grant.create", "arguments": map[string]any{
+			"agent": "worker-agent", "tools": "filesystem.write_file", "duration": "1h",
+		},
+	}})
+	if resp.Error != nil {
+		t.Fatalf("supervisor should create grants, got error: %s", resp.Error.Message)
+	}
+	if s.Handler.Grants.Check("worker-agent", "filesystem.write_file") == nil {
+		t.Error("grant for worker-agent should exist after supervisor created it")
 	}
 }
 

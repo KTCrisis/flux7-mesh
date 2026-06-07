@@ -115,6 +115,14 @@ type Server struct {
 	SupervisorAgents []string // agent ID globs allowed to see approval tools in supervisor mode
 }
 
+// canManageGrants reports whether the current agent may create or revoke
+// grants over MCP. Grants bypass human_approval, so minting them is an
+// operator privilege — reserved to declared supervisor agents. With no
+// supervisor configured, no MCP agent can mutate grants (HTTP API only).
+func (s *Server) canManageGrants() bool {
+	return match.GlobAny(s.SupervisorAgents, s.AgentID)
+}
+
 // Run starts the MCP server on stdin/stdout.
 func (s *Server) Run() error {
 	return s.Serve(os.Stdin, os.Stdout)
@@ -265,36 +273,46 @@ func (s *Server) handleToolsList() map[string]any {
 		})
 	}
 
-	// Append virtual grant tools
+	// grant.list is read-only — visible to everyone.
 	mcpTools = append(mcpTools, MCPTool{
-		Name:        "grant.create",
-		Description: "Create a temporal grant — temporarily allow a tool pattern without approval. Like sudo for agents.",
-		InputSchema: MCPSchema{
-			Type: "object",
-			Properties: map[string]MCPProp{
-				"tools":    {Type: "string", Description: "Tool glob pattern (e.g. filesystem.write_*, gmail.*)"},
-				"duration": {Type: "string", Description: "Duration (e.g. 30m, 2h, 1h30m)"},
-			},
-			Required: []string{"tools", "duration"},
-		},
-	}, MCPTool{
 		Name:        "grant.list",
 		Description: "List all active temporal grants",
 		InputSchema: MCPSchema{
 			Type:       "object",
 			Properties: map[string]MCPProp{},
 		},
-	}, MCPTool{
-		Name:        "grant.revoke",
-		Description: "Revoke an active temporal grant",
-		InputSchema: MCPSchema{
-			Type: "object",
-			Properties: map[string]MCPProp{
-				"id": {Type: "string", Description: "Grant ID (full or prefix)"},
-			},
-			Required: []string{"id"},
-		},
 	})
+
+	// grant.create / grant.revoke mutate the governance plane. A grant
+	// bypasses human_approval, so letting any agent mint its own grant is a
+	// privilege-escalation hole (it would neutralise its own human_approval
+	// rules). These are operator actions: reserved to declared supervisor
+	// agents over MCP; everyone else uses the authenticated HTTP API.
+	if s.canManageGrants() {
+		mcpTools = append(mcpTools, MCPTool{
+			Name:        "grant.create",
+			Description: "Create a temporal grant — temporarily allow a tool pattern without approval. Like sudo for agents. Supervisor/operator only.",
+			InputSchema: MCPSchema{
+				Type: "object",
+				Properties: map[string]MCPProp{
+					"agent":    {Type: "string", Description: "Agent glob the grant applies to (e.g. worker-*). Defaults to the calling agent."},
+					"tools":    {Type: "string", Description: "Tool glob pattern (e.g. filesystem.write_*, gmail.*)"},
+					"duration": {Type: "string", Description: "Duration (e.g. 30m, 2h, 1h30m)"},
+				},
+				Required: []string{"tools", "duration"},
+			},
+		}, MCPTool{
+			Name:        "grant.revoke",
+			Description: "Revoke an active temporal grant. Supervisor/operator only.",
+			InputSchema: MCPSchema{
+				Type: "object",
+				Properties: map[string]MCPProp{
+					"id": {Type: "string", Description: "Grant ID (full or prefix)"},
+				},
+				Required: []string{"id"},
+			},
+		})
+	}
 
 	// Append virtual catalog tool
 	mcpTools = append(mcpTools, MCPTool{
@@ -333,10 +351,16 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 		}
 		return s.handleApprovalPending()
 	case "grant.create":
+		if !s.canManageGrants() {
+			return nil, &rpcError{Code: -32601, Message: "grant.create is operator-only — not callable by this agent. Use the HTTP API or a declared supervisor agent."}
+		}
 		return s.handleGrantCreate(arguments)
 	case "grant.list":
 		return s.handleGrantList()
 	case "grant.revoke":
+		if !s.canManageGrants() {
+			return nil, &rpcError{Code: -32601, Message: "grant.revoke is operator-only — not callable by this agent. Use the HTTP API or a declared supervisor agent."}
+		}
 		return s.handleGrantRevoke(arguments)
 	case "mesh.catalog":
 		return s.handleCatalog(arguments)
@@ -748,7 +772,12 @@ func (s *Server) handleGrantCreate(args map[string]any) (any, *rpcError) {
 	if dur > maxGrantDuration {
 		return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("duration exceeds maximum (%s)", maxGrantDuration)}
 	}
-	g := s.Handler.Grants.Add(s.AgentID, tools, "mcp:"+s.AgentID, dur)
+	// Operators may grant on behalf of another agent; default to themselves.
+	targetAgent, _ := args["agent"].(string)
+	if targetAgent == "" {
+		targetAgent = s.AgentID
+	}
+	g := s.Handler.Grants.Add(targetAgent, tools, "mcp:"+s.AgentID, dur)
 	slog.Info("grant created via MCP",
 		"id", g.ID, "agent", g.Agent, "tools", g.Tools, "duration", duration)
 	return map[string]any{
