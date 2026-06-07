@@ -22,14 +22,25 @@ func daemonRunning(port int) bool {
 }
 
 func runStdioProxy(port int, agentID string) error {
-	slog.Info("daemon detected — proxying stdio to HTTP", "port", port, "agent", agentID)
+	// A pre-issued token (JWT) takes precedence over the legacy agent: identity.
+	// Required when the daemon runs with JWT auth (strict mode rejects agent:).
+	token := os.Getenv("MESH_AGENT_TOKEN")
+	slog.Info("daemon detected — proxying stdio to HTTP", "port", port, "agent", agentID, "token", token != "")
 	base := fmt.Sprintf("http://localhost:%d", port)
-	return runStdioProxyWith(base, agentID, os.Stdin, os.Stdout)
+	return runStdioProxyWith(base, agentID, token, os.Stdin, os.Stdout)
 }
 
-func runStdioProxyWith(base string, agentID string, in io.Reader, out io.Writer) error {
+func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var sessionID string
+
+	// With a token, present it as the Bearer credential (validated by the daemon
+	// as a JWT). Without one, fall back to the legacy self-declared agent: form,
+	// which only the daemon's non-JWT / allow_legacy modes accept.
+	authHeader := "Bearer agent:" + agentID
+	if token != "" {
+		authHeader = "Bearer " + token
+	}
 
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4<<20), 4<<20)
@@ -46,7 +57,7 @@ func runStdioProxyWith(base string, agentID string, in io.Reader, out io.Writer)
 			return fmt.Errorf("proxy: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer agent:"+agentID)
+		req.Header.Set("Authorization", authHeader)
 		if sessionID != "" {
 			req.Header.Set("Mcp-Session-Id", sessionID)
 		}

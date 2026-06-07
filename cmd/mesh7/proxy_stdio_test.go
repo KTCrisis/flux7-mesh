@@ -57,7 +57,7 @@ func TestStdioProxyForward(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}` + "\n"
 
 	var out bytes.Buffer
-	err := runStdioProxyWith(srv.URL, "claude", strings.NewReader(input), &out)
+	err := runStdioProxyWith(srv.URL, "claude", "", strings.NewReader(input), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +84,32 @@ func TestStdioProxyNotificationSkipped(t *testing.T) {
 	input := `{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
 
 	var out bytes.Buffer
-	err := runStdioProxyWith(srv.URL, "claude", strings.NewReader(input), &out)
+	err := runStdioProxyWith(srv.URL, "claude", "", strings.NewReader(input), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.Len() != 0 {
 		t.Errorf("expected no output for notification, got %q", out.String())
+	}
+}
+
+func TestStdioProxyUsesTokenWhenProvided(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": map[string]any{}})
+	}))
+	defer srv.Close()
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
+	var out bytes.Buffer
+	// A JWT-like token must be presented verbatim, not wrapped in agent:.
+	if err := runStdioProxyWith(srv.URL, "claude", "header.payload.sig", strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer header.payload.sig" {
+		t.Errorf("expected raw token bearer, got %q", gotAuth)
 	}
 }
