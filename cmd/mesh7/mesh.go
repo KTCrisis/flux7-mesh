@@ -204,6 +204,18 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		slog.Info("JWT auth enabled", "jwks_url", cfg.Auth.JWT.JWKSURL)
 	}
 
+	// Control-plane auth. MESH_ADMIN_TOKEN env overrides config.
+	adminToken := cfg.Auth.AdminToken
+	if env := os.Getenv("MESH_ADMIN_TOKEN"); env != "" {
+		adminToken = env
+	}
+	m.handler.AdminToken = adminToken
+	if adminToken != "" {
+		slog.Info("control plane: admin token required")
+	} else {
+		slog.Info("control plane: no admin token — restricted to loopback callers")
+	}
+
 	// Upstream MCP servers (parallel)
 	if len(cfg.MCPServers) > 0 {
 		m.mcpManager = mcp.NewManager()

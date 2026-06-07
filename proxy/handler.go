@@ -3,10 +3,12 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -49,17 +51,18 @@ type MCPForwarder interface {
 
 // Handler is the HTTP handler for the sidecar proxy.
 type Handler struct {
-	Registry     *registry.Registry
-	Policy       *policy.Engine
-	Traces       *trace.Store
-	Approvals    *approval.Store
-	RateLimiter  *ratelimit.Limiter
-	Grants       *grant.Store
-	Client        *http.Client
-	MCPForwarder  MCPForwarder
-	CLIRunner     *meshexec.Runner
+	Registry       *registry.Registry
+	Policy         *policy.Engine
+	Traces         *trace.Store
+	Approvals      *approval.Store
+	RateLimiter    *ratelimit.Limiter
+	Grants         *grant.Store
+	Client         *http.Client
+	MCPForwarder   MCPForwarder
+	CLIRunner      *meshexec.Runner
 	SupervisorCfg  config.SupervisorConfig
 	JWTValidator   *auth.Validator
+	AdminToken     string       // guards the control plane; empty = loopback-only
 	MCPHTTPHandler http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
 	// Build info (populated from main.go ldflags-injected vars).
@@ -80,49 +83,88 @@ func NewHandler(reg *registry.Registry, pol *policy.Engine, traces *trace.Store)
 // ServeHTTP routes requests to the appropriate handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	// --- Data plane: agents call these, never admin-gated ---
 	case r.Method == "POST" && r.URL.Path == "/decide":
 		h.handleDecide(w, r)
 	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/tool/"):
 		h.handleToolCall(w, r)
 	case r.Method == "GET" && r.URL.Path == "/tools":
 		h.handleListTools(w, r)
-	case r.Method == "GET" && r.URL.Path == "/traces":
-		h.handleTraces(w, r)
-	case r.Method == "GET" && r.URL.Path == "/otel-traces":
-		h.handleOTELTraces(w, r)
 	case r.Method == "GET" && r.URL.Path == "/mcp-servers":
 		h.handleMCPServers(w, r)
-	case r.Method == "GET" && r.URL.Path == "/approvals":
-		h.handleListApprovals(w, r)
-	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/approvals/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/approvals/"), "/"):
-		h.handleGetApproval(w, r)
-	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/approve") && strings.HasPrefix(r.URL.Path, "/approvals/"):
-		h.handleApproveAction(w, r)
-	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/deny") && strings.HasPrefix(r.URL.Path, "/approvals/"):
-		h.handleDenyAction(w, r)
-	case r.Method == "GET" && r.URL.Path == "/grants":
-		h.handleListGrants(w, r)
-	case r.Method == "POST" && r.URL.Path == "/grants":
-		h.handleCreateGrant(w, r)
-	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/grants/"):
-		h.handleRevokeGrant(w, r)
-	case r.Method == "GET" && r.URL.Path == "/sessions":
-		h.handleListSessions(w, r)
-	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/sessions/"):
-		h.handleSessionEvents(w, r)
-	case r.Method == "GET" && r.URL.Path == "/policies":
-		h.handlePolicies(w, r)
 	case r.Method == "GET" && r.URL.Path == "/health":
 		h.handleHealth(w, r)
 	case r.Method == "GET" && r.URL.Path == "/version":
 		h.handleVersion(w, r)
-	case r.Method == "GET" && r.URL.Path == "/metrics":
-		h.handleMetrics(w, r)
 	case r.URL.Path == "/mcp" && h.MCPHTTPHandler != nil:
 		h.MCPHTTPHandler.ServeHTTP(w, r)
+
+	// --- Control plane: operator actions, require admin auth ---
+	case r.Method == "GET" && r.URL.Path == "/traces":
+		h.admin(r, w, h.handleTraces)
+	case r.Method == "GET" && r.URL.Path == "/otel-traces":
+		h.admin(r, w, h.handleOTELTraces)
+	case r.Method == "GET" && r.URL.Path == "/approvals":
+		h.admin(r, w, h.handleListApprovals)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/approvals/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/approvals/"), "/"):
+		h.admin(r, w, h.handleGetApproval)
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/approve") && strings.HasPrefix(r.URL.Path, "/approvals/"):
+		h.admin(r, w, h.handleApproveAction)
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/deny") && strings.HasPrefix(r.URL.Path, "/approvals/"):
+		h.admin(r, w, h.handleDenyAction)
+	case r.Method == "GET" && r.URL.Path == "/grants":
+		h.admin(r, w, h.handleListGrants)
+	case r.Method == "POST" && r.URL.Path == "/grants":
+		h.admin(r, w, h.handleCreateGrant)
+	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/grants/"):
+		h.admin(r, w, h.handleRevokeGrant)
+	case r.Method == "GET" && r.URL.Path == "/sessions":
+		h.admin(r, w, h.handleListSessions)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/sessions/"):
+		h.admin(r, w, h.handleSessionEvents)
+	case r.Method == "GET" && r.URL.Path == "/policies":
+		h.admin(r, w, h.handlePolicies)
+	case r.Method == "GET" && r.URL.Path == "/metrics":
+		h.admin(r, w, h.handleMetrics)
+
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// admin guards a control-plane handler. With AdminToken set, the caller must
+// present `Authorization: Bearer <token>`. With AdminToken empty, only
+// loopback callers are allowed — making the "localhost-only" posture explicit
+// rather than silently exposing the control plane on every interface.
+func (h *Handler) admin(r *http.Request, w http.ResponseWriter, next func(http.ResponseWriter, *http.Request)) {
+	if h.adminAuthorized(r) {
+		next(w, r)
+		return
+	}
+	writeJSON(w, 401, map[string]string{"error": "control plane requires admin authorization"})
+}
+
+func (h *Handler) adminAuthorized(r *http.Request) bool {
+	if h.AdminToken != "" {
+		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		return subtleConstEq(raw, h.AdminToken)
+	}
+	return isLoopback(r.RemoteAddr)
+}
+
+func isLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// subtleConstEq compares two strings in constant time to avoid leaking the
+// admin token through response-timing differences.
+func subtleConstEq(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {

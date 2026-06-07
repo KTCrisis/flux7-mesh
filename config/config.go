@@ -30,6 +30,12 @@ type Config struct {
 // AuthConfig holds authentication settings.
 type AuthConfig struct {
 	JWT *JWTConfig `yaml:"jwt,omitempty"`
+	// AdminToken guards the control plane (traces, grants, approvals,
+	// policies, sessions, metrics). When set, those endpoints require
+	// `Authorization: Bearer <token>`. When empty, the control plane is
+	// restricted to loopback callers only. The data plane (tool calls,
+	// /decide, /mcp, /health) is never gated by this.
+	AdminToken string `yaml:"admin_token,omitempty"`
 }
 
 // JWTConfig configures JWT validation against an external IdP.
@@ -56,10 +62,10 @@ type OpenAPIConfig struct {
 
 // SupervisorConfig controls supervisor mode, content isolation, and auto-approval.
 type SupervisorConfig struct {
-	Enabled         *bool    `yaml:"enabled"`          // when true, hide approval.* tools from agents
-	ExposeContent   *bool    `yaml:"expose_content"`
-	AutoApprove     *bool    `yaml:"auto_approve"`     // enable mem7-based auto-approval (default true)
-	MinApprovals    int      `yaml:"min_approvals"`    // min past approvals for auto-approve (default 3)
+	Enabled          *bool    `yaml:"enabled"` // when true, hide approval.* tools from agents
+	ExposeContent    *bool    `yaml:"expose_content"`
+	AutoApprove      *bool    `yaml:"auto_approve"`      // enable mem7-based auto-approval (default true)
+	MinApprovals     int      `yaml:"min_approvals"`     // min past approvals for auto-approve (default 3)
 	SupervisorAgents []string `yaml:"supervisor_agents"` // agent IDs (glob) allowed to see approval tools in supervisor mode
 }
 
