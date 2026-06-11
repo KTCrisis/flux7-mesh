@@ -294,9 +294,15 @@ cli_tools:
     commands:
       get:
         allowed_args: ["-n", "--namespace", "-o"]
+
+  - name: jq          # binary without subcommands
+    bin: jq
+    default_action: allow
+    bare:
+      allowed_args: ["-r", "--compact-output"]
 ```
 
-Agents call CLI tools like any MCP tool — `terraform.plan`, `kubectl.get`, `gh.pr`. See [docs/cli-tools.md](docs/cli-tools.md).
+Agents call CLI tools like any MCP tool — `terraform.plan`, `kubectl.get`, `gh.pr`. A `bare` binary registers a single `<name>.run` tool. Every CLI tool accepts an optional `stdin` param, piped to the process as data (never shell-interpreted). See [docs/cli-tools.md](docs/cli-tools.md).
 
 ### Policies
 

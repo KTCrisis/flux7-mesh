@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/KTCrisis/flux7-mesh/config"
 )
@@ -308,6 +309,63 @@ func TestLoadCLI_StrictMode(t *testing.T) {
 	// No catch-all in strict mode
 	if r.Get("kubectl.__dispatch") != nil {
 		t.Error("strict mode should NOT have __dispatch")
+	}
+}
+
+func TestLoadCLI_BareMode(t *testing.T) {
+	r := New()
+	r.LoadCLI([]config.CLIToolConfig{
+		{
+			Name:          "play7",
+			Bin:           "/home/user/bin/play7.exe",
+			DefaultAction: "allow",
+			Bare:          &config.CLICommandConfig{AllowedArgs: []string{"--port", "--out"}, Timeout: "2m"},
+		},
+	})
+
+	run := r.Get("play7.run")
+	if run == nil {
+		t.Fatal("expected play7.run tool")
+	}
+	if run.CLIMeta.Command != "" {
+		t.Errorf("bare mode must not inject a subcommand, got %q", run.CLIMeta.Command)
+	}
+	if run.CLIMeta.Timeout != 2*time.Minute {
+		t.Errorf("timeout = %v, want 2m", run.CLIMeta.Timeout)
+	}
+	if len(run.CLIMeta.AllowedArgs) != 2 {
+		t.Errorf("allowed_args = %v", run.CLIMeta.AllowedArgs)
+	}
+
+	// No catch-all in bare mode
+	if r.Get("play7.__dispatch") != nil {
+		t.Error("bare mode should NOT have __dispatch")
+	}
+
+	// stdin must be exposed in the tool schema
+	hasStdin := false
+	for _, p := range run.Params {
+		if p.Name == "stdin" {
+			hasStdin = true
+		}
+	}
+	if !hasStdin {
+		t.Error("expected stdin param in bare tool schema")
+	}
+}
+
+func TestResolveCLI_BareNoFallback(t *testing.T) {
+	r := New()
+	r.LoadCLI([]config.CLIToolConfig{
+		{Name: "play7", Bin: "play7", DefaultAction: "allow", Bare: &config.CLICommandConfig{}},
+	})
+
+	if r.ResolveCLI("play7.run") == nil {
+		t.Fatal("expected play7.run to resolve")
+	}
+	// Undeclared names must not resolve (no dispatch in bare mode)
+	if r.ResolveCLI("play7.evil") != nil {
+		t.Error("bare mode should not resolve undeclared commands")
 	}
 }
 

@@ -265,6 +265,41 @@ cli_tools:
     bin: gh
     default_action: allow
 `, false},
+		{"valid bare mode", `
+policies: []
+cli_tools:
+  - name: play7
+    bin: /home/user/bin/play7.exe
+    default_action: allow
+    bare:
+      allowed_args: ["--port", "--out"]
+      timeout: 2m
+`, false},
+		{"bare with commands", `
+policies: []
+cli_tools:
+  - name: play7
+    bin: play7
+    bare: {}
+    commands:
+      list: {}
+`, true},
+		{"bare with strict", `
+policies: []
+cli_tools:
+  - name: play7
+    bin: play7
+    strict: true
+    bare: {}
+`, true},
+		{"bare invalid timeout", `
+policies: []
+cli_tools:
+  - name: play7
+    bin: play7
+    bare:
+      timeout: notaduration
+`, true},
 	}
 
 	for _, tt := range tests {

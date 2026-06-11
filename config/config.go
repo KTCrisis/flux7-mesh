@@ -141,6 +141,7 @@ type CLIToolConfig struct {
 	WorkingDir    string                      `yaml:"working_dir,omitempty"`
 	Env           map[string]string           `yaml:"env,omitempty"`
 	Commands      map[string]CLICommandConfig `yaml:"commands,omitempty"`
+	Bare          *CLICommandConfig           `yaml:"bare,omitempty"` // binary without subcommands; exclusive with commands/strict
 }
 
 // CLICommandConfig declares a specific subcommand with constraints.
@@ -349,6 +350,20 @@ func (c *Config) validateCLITools() error {
 			// ok — empty defaults to "deny" at runtime
 		default:
 			return fmt.Errorf("cli_tools[%d] (%s): invalid default_action %q", i, ct.Name, ct.DefaultAction)
+		}
+
+		if ct.Bare != nil {
+			if len(ct.Commands) > 0 {
+				return fmt.Errorf("cli_tools[%d] (%s): bare and commands are mutually exclusive", i, ct.Name)
+			}
+			if ct.Strict {
+				return fmt.Errorf("cli_tools[%d] (%s): strict has no meaning in bare mode", i, ct.Name)
+			}
+			if ct.Bare.Timeout != "" {
+				if _, err := time.ParseDuration(ct.Bare.Timeout); err != nil {
+					return fmt.Errorf("cli_tools[%d] (%s): bare has invalid timeout %q: %w", i, ct.Name, ct.Bare.Timeout, err)
+				}
+			}
 		}
 
 		if ct.Strict && len(ct.Commands) == 0 {

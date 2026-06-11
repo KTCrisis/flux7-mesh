@@ -38,7 +38,7 @@ cli_tools:
         timeout: 300s
 ```
 
-### Three modes
+### Four modes
 
 #### Simple — just the binary
 
@@ -96,6 +96,22 @@ cli_tools:
       # logs, exec, port-forward → denied (not listed)
 ```
 
+#### Bare — binary without subcommands
+
+For CLIs that take only flags and positional arguments (`jq`, `ffmpeg`, custom tools). Registers a single `<name>.run` tool — no subcommand is ever injected, no catch-all dispatch.
+
+```yaml
+cli_tools:
+  - name: play7
+    bin: /home/user/bin/play7.exe
+    default_action: allow
+    bare:
+      allowed_args: ["--port", "--out", "--list"]
+      timeout: 2m
+```
+
+The agent calls `play7.run` with `args` (and optionally `stdin`). `bare` is mutually exclusive with `commands` and `strict`.
+
 ### Config fields
 
 | Field | Type | Required | Description |
@@ -107,6 +123,7 @@ cli_tools:
 | `working_dir` | string | no | Working directory for all commands |
 | `env` | map | no | Environment variables (isolated — only PATH, HOME, LANG + these) |
 | `commands` | map | no | Per-command overrides (see below) |
+| `bare` | object | no | Bare-binary mode: same fields as a command entry. Exclusive with `commands`/`strict`. |
 
 #### Command fields
 
@@ -123,6 +140,7 @@ Config loading fails if:
 - `default_action` is not `allow`, `deny`, or `human_approval`
 - `strict: true` with no `commands` declared
 - `timeout` is not parsable as a Go duration
+- `bare` combined with `commands` or `strict`
 
 ## Policy integration
 
@@ -186,7 +204,7 @@ CLI tools appear as standard MCP tools in `tools/list`:
 
 ## Call format
 
-Agents pass parameters in two formats (combinable):
+Agents pass parameters in three formats (combinable):
 
 ```json
 {
@@ -202,6 +220,7 @@ Agents pass parameters in two formats (combinable):
 
 - `args`: positional arguments passed directly
 - `flags`: named flags, converted to CLI args (`-n prod` for single char, `--namespace prod` for multi char)
+- `stdin`: string piped to the process stdin
 
 For catch-all dispatch, include `command`:
 
@@ -213,6 +232,20 @@ For catch-all dispatch, include `command`:
   }
 }
 ```
+
+### stdin
+
+Any CLI tool accepts an optional `stdin` param:
+
+```json
+{
+  "params": {
+    "stdin": "{\"steps\":[{\"notes\":[\"C4\",\"E4\",\"G4\"],\"beats\":2}]}"
+  }
+}
+```
+
+stdin is **data, not shell syntax**: it is piped directly to the process and is deliberately exempt from metacharacter validation (a JSON or text payload may legitimately contain `|`, `$`, etc.). It never touches a shell. Note that stdin content is recorded in traces like any other param — by design, but worth knowing for large payloads.
 
 ## Security
 
