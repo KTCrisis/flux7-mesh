@@ -75,7 +75,7 @@ func TestRunner_Echo(t *testing.T) {
 		Bin: "echo",
 	}
 
-	result, err := runner.Run(context.Background(), meta, "", []string{"hello", "world"})
+	result, err := runner.Run(context.Background(), meta, Input{Args: []string{"hello", "world"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestRunner_NonZeroExit(t *testing.T) {
 		Bin: "false", // always exits 1
 	}
 
-	result, err := runner.Run(context.Background(), meta, "", nil)
+	result, err := runner.Run(context.Background(), meta, Input{})
 	if err != nil {
 		t.Fatalf("non-zero exit should not be an error, got %v", err)
 	}
@@ -109,7 +109,7 @@ func TestRunner_Timeout(t *testing.T) {
 		Timeout: 100 * time.Millisecond,
 	}
 
-	_, err := runner.Run(context.Background(), meta, "", []string{"10"})
+	_, err := runner.Run(context.Background(), meta, Input{Args: []string{"10"}})
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -126,7 +126,7 @@ func TestRunner_OutputCap(t *testing.T) {
 	}
 
 	// yes will be killed by timeout, but output should be capped
-	result, _ := runner.Run(context.Background(), meta, "", nil)
+	result, _ := runner.Run(context.Background(), meta, Input{})
 	if len(result.Stdout) > 100 {
 		t.Errorf("expected stdout capped at 100 bytes, got %d", len(result.Stdout))
 	}
@@ -140,7 +140,7 @@ func TestRunner_Subcommand(t *testing.T) {
 	}
 
 	// "echo plan --target foo" should print "plan --target foo"
-	result, err := runner.Run(context.Background(), meta, "plan", []string{"--target", "foo"})
+	result, err := runner.Run(context.Background(), meta, Input{Command: "plan", Args: []string{"--target", "foo"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,13 +157,13 @@ func TestRunner_AllowedArgsEnforced(t *testing.T) {
 	}
 
 	// Allowed flag
-	_, err := runner.Run(context.Background(), meta, "", []string{"-n", "hello"})
+	_, err := runner.Run(context.Background(), meta, Input{Args: []string{"-n", "hello"}})
 	if err != nil {
 		t.Fatalf("expected allowed flag to work, got %v", err)
 	}
 
 	// Disallowed flag
-	_, err = runner.Run(context.Background(), meta, "", []string{"--evil", "hello"})
+	_, err = runner.Run(context.Background(), meta, Input{Args: []string{"--evil", "hello"}})
 	if err == nil {
 		t.Fatal("expected error for disallowed flag")
 	}
@@ -176,7 +176,7 @@ func TestRunner_EnvIsolation(t *testing.T) {
 		Env: map[string]string{"MY_CUSTOM": "value123"},
 	}
 
-	result, err := runner.Run(context.Background(), meta, "", nil)
+	result, err := runner.Run(context.Background(), meta, Input{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -196,12 +196,12 @@ func TestExtractCommand_CatchAll(t *testing.T) {
 		"args":    []any{"-backend=false"},
 	}
 
-	cmd, args := ExtractCommand(params, meta)
-	if cmd != "init" {
-		t.Errorf("expected command 'init', got %q", cmd)
+	in := ExtractCommand(params, meta)
+	if in.Command != "init" {
+		t.Errorf("expected command 'init', got %q", in.Command)
 	}
-	if len(args) != 1 || args[0] != "-backend=false" {
-		t.Errorf("expected args [-backend=false], got %v", args)
+	if len(in.Args) != 1 || in.Args[0] != "-backend=false" {
+		t.Errorf("expected args [-backend=false], got %v", in.Args)
 	}
 }
 
@@ -214,14 +214,14 @@ func TestExtractCommand_Flags(t *testing.T) {
 		},
 	}
 
-	cmd, args := ExtractCommand(params, meta)
-	if cmd != "get" {
-		t.Errorf("expected command 'get', got %q", cmd)
+	in := ExtractCommand(params, meta)
+	if in.Command != "get" {
+		t.Errorf("expected command 'get', got %q", in.Command)
 	}
 	// Flags should produce short -n and -o (single char = single dash)
-	joined := strings.Join(args, " ")
+	joined := strings.Join(in.Args, " ")
 	if !strings.Contains(joined, "-n") || !strings.Contains(joined, "prod") {
-		t.Errorf("expected -n prod in args, got %v", args)
+		t.Errorf("expected -n prod in args, got %v", in.Args)
 	}
 }
 
@@ -232,13 +232,77 @@ func TestExtractCommand_MixedArgsAndFlags(t *testing.T) {
 		"flags": map[string]any{"namespace": "prod"},
 	}
 
-	cmd, args := ExtractCommand(params, meta)
-	if cmd != "get" {
-		t.Errorf("expected command 'get', got %q", cmd)
+	in := ExtractCommand(params, meta)
+	if in.Command != "get" {
+		t.Errorf("expected command 'get', got %q", in.Command)
 	}
 	// Should have positional args + flags
-	if len(args) < 3 {
-		t.Errorf("expected at least 3 args, got %v", args)
+	if len(in.Args) < 3 {
+		t.Errorf("expected at least 3 args, got %v", in.Args)
+	}
+}
+
+func TestRunner_Stdin(t *testing.T) {
+	runner := &Runner{}
+	meta := &registry.CLIToolMeta{
+		Bin: "cat",
+	}
+
+	result, err := runner.Run(context.Background(), meta, Input{Stdin: "piped payload"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := strings.TrimSpace(result.Stdout); got != "piped payload" {
+		t.Errorf("expected stdin echoed back, got %q", got)
+	}
+}
+
+func TestRunner_StdinNotShellInterpreted(t *testing.T) {
+	runner := &Runner{}
+	meta := &registry.CLIToolMeta{
+		Bin: "cat",
+	}
+
+	// Metacharacters are data on stdin, not shell syntax — must pass through verbatim
+	payload := `{"steps":[{"notes":["C4"]}]} ; rm -rf / | $(evil)`
+	result, err := runner.Run(context.Background(), meta, Input{Stdin: payload})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := strings.TrimSpace(result.Stdout); got != payload {
+		t.Errorf("expected payload verbatim, got %q", got)
+	}
+}
+
+func TestRunner_BareBinary(t *testing.T) {
+	runner := &Runner{}
+	// Bare mode: empty Command, args go straight to the binary
+	meta := &registry.CLIToolMeta{
+		Bin:     "echo",
+		Command: "",
+	}
+
+	result, err := runner.Run(context.Background(), meta, Input{Args: []string{"--port", "P-125"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := strings.TrimSpace(result.Stdout); got != "--port P-125" {
+		t.Errorf("expected '--port P-125' (no injected subcommand), got %q", got)
+	}
+}
+
+func TestExtractCommand_Stdin(t *testing.T) {
+	meta := &registry.CLIToolMeta{Bin: "play7"}
+	params := map[string]any{
+		"stdin": `{"steps":[]}`,
+	}
+
+	in := ExtractCommand(params, meta)
+	if in.Stdin != `{"steps":[]}` {
+		t.Errorf("expected stdin extracted, got %q", in.Stdin)
+	}
+	if in.Command != "" {
+		t.Errorf("expected empty command for bare meta, got %q", in.Command)
 	}
 }
 

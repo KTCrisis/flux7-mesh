@@ -21,6 +21,28 @@ func (r *Registry) LoadCLI(tools []config.CLIToolConfig) {
 			defaultAction = "deny"
 		}
 
+		// Bare binary (no subcommands): single <name>.run tool, no catch-all
+		if cfg.Bare != nil {
+			name := cfg.Name + ".run"
+			r.set(name, &Tool{
+				Name:        name,
+				Description: fmt.Sprintf("Run %s", cfg.Bin),
+				Source:      "cli",
+				Params:      cliCommandParams(*cfg.Bare),
+				CLIMeta: &CLIToolMeta{
+					Bin:           cfg.Bin,
+					Command:       "",
+					AllowedArgs:   cfg.Bare.AllowedArgs,
+					Timeout:       parseDuration(cfg.Bare.Timeout, 30*time.Second),
+					WorkingDir:    cfg.WorkingDir,
+					Env:           cfg.Env,
+					Strict:        true,
+					DefaultAction: defaultAction,
+				},
+			})
+			continue
+		}
+
 		// Register each declared command
 		for cmdName, cmdCfg := range cfg.Commands {
 			name := cfg.Name + "." + cmdName
@@ -53,6 +75,7 @@ func (r *Registry) LoadCLI(tools []config.CLIToolConfig) {
 					{Name: "command", In: "body", Type: "string", Required: true},
 					{Name: "args", In: "body", Type: "array"},
 					{Name: "flags", In: "body", Type: "object"},
+					{Name: "stdin", In: "body", Type: "string"},
 				},
 				CLIMeta: &CLIToolMeta{
 					Bin:           cfg.Bin,
@@ -95,6 +118,7 @@ func cliCommandParams(cmd config.CLICommandConfig) []Param {
 	params := []Param{
 		{Name: "args", In: "body", Type: "array"},
 		{Name: "flags", In: "body", Type: "object"},
+		{Name: "stdin", In: "body", Type: "string"},
 	}
 	return params
 }

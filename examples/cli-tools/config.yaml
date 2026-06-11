@@ -36,6 +36,15 @@ cli_tools:
       delete:
         allowed_args: ["-n", "--namespace"]
 
+  # Bare mode: binary without subcommands — registers a single jq.run tool.
+  # Pass input via the optional stdin param (piped as data, never shell-interpreted).
+  - name: jq
+    bin: jq
+    default_action: allow
+    bare:
+      allowed_args: ["-r", "--compact-output"]
+      timeout: 30s
+
 policies:
   - name: cli-governance
     agent: "*"
@@ -48,4 +57,6 @@ policies:
       - tools: ["kubectl.delete*"]
         action: human_approval
       - tools: ["gh.*"]
+        action: allow
+      - tools: ["jq.run"]
         action: allow

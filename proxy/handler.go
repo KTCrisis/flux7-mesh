@@ -641,10 +641,10 @@ func (h *Handler) forwardCLI(tool *registry.Tool, params map[string]any) (any, i
 		return nil, 0, fmt.Errorf("tool %s has no CLI metadata", tool.Name)
 	}
 
-	command, args := meshexec.ExtractCommand(params, meta)
+	in := meshexec.ExtractCommand(params, meta)
 
 	ctx := context.Background()
-	result, err := h.CLIRunner.Run(ctx, meta, command, args)
+	result, err := h.CLIRunner.Run(ctx, meta, in)
 	if err != nil {
 		statusCode := 500
 		if result != nil && result.ExitCode != 0 {

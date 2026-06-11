@@ -20,6 +20,13 @@ type Result struct {
 	ExitCode int    `json:"exit_code"`
 }
 
+// Input holds the parsed call parameters for a CLI execution.
+type Input struct {
+	Command string // subcommand; empty for bare binaries
+	Args    []string
+	Stdin   string // piped to the process stdin when non-empty
+}
+
 // Runner executes CLI commands securely.
 type Runner struct {
 	MaxOutputBytes int // default 1MB (1<<20)
@@ -32,17 +39,17 @@ type Runner struct {
 // - output size cap
 // - env isolation
 // - working directory sandboxing
-func (r *Runner) Run(ctx context.Context, meta *registry.CLIToolMeta, command string, args []string) (*Result, error) {
-	if err := ValidateArgs(meta.AllowedArgs, args); err != nil {
+func (r *Runner) Run(ctx context.Context, meta *registry.CLIToolMeta, in Input) (*Result, error) {
+	if err := ValidateArgs(meta.AllowedArgs, in.Args); err != nil {
 		return nil, fmt.Errorf("argument validation failed: %w", err)
 	}
 
 	// Build full argument list: [subcommand, ...args]
-	fullArgs := make([]string, 0, 1+len(args))
-	if command != "" {
-		fullArgs = append(fullArgs, command)
+	fullArgs := make([]string, 0, 1+len(in.Args))
+	if in.Command != "" {
+		fullArgs = append(fullArgs, in.Command)
 	}
-	fullArgs = append(fullArgs, args...)
+	fullArgs = append(fullArgs, in.Args...)
 
 	// Apply timeout
 	timeout := meta.Timeout
@@ -56,6 +63,9 @@ func (r *Runner) Run(ctx context.Context, meta *registry.CLIToolMeta, command st
 	cmd.Env = buildEnv(meta.Env)
 	if meta.WorkingDir != "" {
 		cmd.Dir = meta.WorkingDir
+	}
+	if in.Stdin != "" {
+		cmd.Stdin = strings.NewReader(in.Stdin)
 	}
 
 	// Capture stdout/stderr with size limit
@@ -163,26 +173,27 @@ func buildEnv(custom map[string]string) []string {
 	return env
 }
 
-// ExtractCommand parses CLI call params into a command and argument list.
-// Supports two formats:
+// ExtractCommand parses CLI call params into an Input.
+// Supported params:
 //   - "args": ["--target", "foo"]
 //   - "flags": {"target": "foo", "namespace": "prod"} → ["-target", "foo", "-namespace", "prod"]
+//   - "stdin": "payload" — piped to the process stdin (data, never shell-interpreted)
 //
-// Both can be combined; flags are appended after args.
-func ExtractCommand(params map[string]any, meta *registry.CLIToolMeta) (command string, args []string) {
-	command = meta.Command
+// args and flags can be combined; flags are appended after args.
+func ExtractCommand(params map[string]any, meta *registry.CLIToolMeta) Input {
+	in := Input{Command: meta.Command}
 
 	// For catch-all dispatch, command comes from params
 	if meta.IsCatchAll {
 		if cmd, ok := params["command"].(string); ok {
-			command = cmd
+			in.Command = cmd
 		}
 	}
 
 	// Extract positional args
 	if rawArgs, ok := params["args"].([]any); ok {
 		for _, a := range rawArgs {
-			args = append(args, fmt.Sprintf("%v", a))
+			in.Args = append(in.Args, fmt.Sprintf("%v", a))
 		}
 	}
 
@@ -193,11 +204,15 @@ func ExtractCommand(params map[string]any, meta *registry.CLIToolMeta) (command 
 			if len(k) > 1 {
 				prefix = "--"
 			}
-			args = append(args, prefix+k, fmt.Sprintf("%v", v))
+			in.Args = append(in.Args, prefix+k, fmt.Sprintf("%v", v))
 		}
 	}
 
-	return command, args
+	if stdin, ok := params["stdin"].(string); ok {
+		in.Stdin = stdin
+	}
+
+	return in
 }
 
 // limitWriter caps bytes written to max. Extra bytes are silently discarded.
