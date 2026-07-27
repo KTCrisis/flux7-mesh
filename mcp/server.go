@@ -400,8 +400,8 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 		return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("Unknown tool: %s", toolName)}
 	}
 
-	// Evaluate policy
-	decision := s.Policy.Evaluate(s.AgentID, toolName, arguments)
+	// Evaluate policy, then apply the tool's own floor (dynamic dispatchers only)
+	decision := policy.Tighten(s.Policy.Evaluate(s.AgentID, toolName, arguments), tool.DispatchFloor())
 	slog.Info("MCP policy evaluated",
 		"agent", s.AgentID, "tool", toolName,
 		"action", decision.Action, "rule", decision.Rule,
@@ -931,7 +931,7 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 			continue
 		}
 
-		action := s.Policy.Evaluate(s.AgentID, t.Name, nil).Action
+		action := policy.Tighten(s.Policy.Evaluate(s.AgentID, t.Name, nil), t.DispatchFloor()).Action
 
 		g, ok := groups[groupKey]
 		if !ok {

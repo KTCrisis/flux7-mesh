@@ -186,6 +186,26 @@ hooks = MeshHooks(agent="my-agent")
 
 See [sdk/python/](sdk/python/) for full docs and examples.
 
+### Harness hook
+
+The proxy governs what an agent routes through mesh7. It cannot govern the tools
+the harness runs itself — `Bash`, `Read`, `Write`, `Edit`. The SDK ships a
+`PreToolUse` hook that closes that side, so one policy file covers both:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": ".*", "hooks": [{ "type": "command", "command": "mesh7-hook" }] }
+    ]
+  }
+}
+```
+
+It starts in observe mode — it traces without refusing anything — so you can
+write the rules from what you actually see before switching to enforce. See
+[docs/harness-hook.md](docs/harness-hook.md).
+
 ## Quick start
 
 ### 1. Write a config
@@ -302,7 +322,9 @@ cli_tools:
       allowed_args: ["-r", "--compact-output"]
 ```
 
-Agents call CLI tools like any MCP tool — `terraform.plan`, `kubectl.get`, `gh.pr`. A `bare` binary registers a single `<name>.run` tool. Every CLI tool accepts an optional `stdin` param, piped to the process as data (never shell-interpreted). See [docs/cli-tools.md](docs/cli-tools.md).
+Agents call CLI tools like any MCP tool — `terraform.plan`, `kubectl.get`, `gh.pr`. A `bare` binary registers a single `<name>.run` tool. Every CLI tool accepts an optional `stdin` param, piped to the process as data (never shell-interpreted).
+
+`default_action` is the floor for the dynamic dispatcher (`<name>.__dispatch`), which is where undeclared subcommands land. It can only restrict, never widen, and defaults to `deny` — so a glob such as `terraform.*: allow` cannot hand over `destroy` along with `plan`. See [docs/cli-tools.md](docs/cli-tools.md).
 
 ### Policies
 

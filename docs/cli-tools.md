@@ -42,20 +42,22 @@ cli_tools:
 
 #### Simple — just the binary
 
-Wraps all subcommands. `default_action` applies to everything. Minimal config.
+Wraps all subcommands through the dispatcher. Minimal config.
 
 ```yaml
 cli_tools:
   - name: gh
     bin: gh
-    default_action: allow
+    default_action: allow     # lifts the dispatcher's default floor of deny
 ```
 
-The agent can call `gh.pr.list`, `gh.issue.create`, etc. All go through policy and tracing.
+The agent can call `gh.pr.list`, `gh.issue.create`, etc. All go through policy
+and tracing — the policy still has to allow them. `default_action: allow` only
+declines to add a floor of its own; it grants nothing on its own.
 
 #### Fine-tuned — binary + command overrides
 
-Declare specific commands for custom rules (timeout, allowed_args). Unlisted commands fall through to `default_action`.
+Declare specific commands for custom rules (timeout, allowed_args). Unlisted commands fall through to the dispatcher, where `default_action` is the floor.
 
 ```yaml
 cli_tools:
@@ -74,7 +76,7 @@ cli_tools:
       destroy:
         allowed_args: ["-target"]
         timeout: 300s
-      # init, validate, fmt, etc. → default_action (human_approval)
+      # init, validate, fmt, etc. → dispatcher, floored at human_approval
 ```
 
 #### Strict — only declared commands allowed
@@ -118,7 +120,7 @@ The agent calls `play7.run` with `args` (and optionally `stdin`). `bare` is mutu
 |-------|------|----------|-------------|
 | `name` | string | yes | Tool name prefix (e.g. `terraform`) — must be unique |
 | `bin` | string | yes | Path or name of the binary (resolved via PATH) |
-| `default_action` | string | no | `allow`, `deny`, or `human_approval` (default: `deny`) |
+| `default_action` | string | no | Floor for the dynamic dispatcher only — `allow`, `deny`, or `human_approval` (default: `deny`). It can only restrict, never widen. See [Dispatcher floor](#dispatcher-floor). |
 | `strict` | bool | no | Only declared commands allowed (default: `false`) |
 | `working_dir` | string | no | Working directory for all commands |
 | `env` | map | no | Environment variables (isolated — only PATH, HOME, LANG + these) |
@@ -152,9 +154,9 @@ policies:
     agent: claude
     rules:
       - tools: ["terraform.destroy"]
-        action: deny                    # never, regardless of default_action
+        action: deny                    # explicit, and evaluated on the requested name
       - tools: ["terraform.plan"]
-        action: allow                   # override default human_approval
+        action: allow
       - tools: ["kubectl.delete*"]
         action: human_approval
       - tools: ["gh.*"]
@@ -164,13 +166,56 @@ policies:
 ### Resolution order
 
 ```
-1. Policy rule match?              → use policy action
-2. Temporal grant match?           → allow (bypass approval)
-3. Strict mode, command not listed? → deny
-4. Command declared with config?   → validate args, then default_action
-5. default_action set?             → use default_action
-6. Nothing?                        → deny (fail-closed)
+1. Resolve the tool         → exact name, else the dispatcher (non-strict only)
+2. Evaluate the policy      → the matching rule's action on the REQUESTED name,
+                              deny if no rule matches (fail-closed)
+3. Apply the floor          → dispatcher only: default_action wins if it is
+                              stricter than the policy said
+4. Temporal grant?          → allow, but only over human_approval — a grant
+                              never overturns a deny
 ```
+
+The policy is evaluated on the name the agent asked for, not on the tool it
+resolved to. A rule denying `terraform.destroy` therefore matches even though
+execution would fall through to the dispatcher.
+
+### Dispatcher floor
+
+`default_action` governs the dynamic dispatcher, and nothing else. Declared
+commands answer to the policy alone — declaring a command is already the
+operator's grant, so a floor over it would make the declaration pointless.
+
+The dispatcher is the surface that needs the floor. It accepts any subcommand
+the binary knows, so a glob written with the declared commands in mind hands
+over everything else along with them:
+
+```yaml
+cli_tools:
+  - name: terraform
+    bin: terraform
+    default_action: deny          # the dispatcher is refused
+    commands:
+      show: {}
+      state: {}
+
+policies:
+  - name: infra
+    agent: claude
+    rules:
+      - tools: ["terraform.*"]    # meant as "the two read-only commands"
+        action: allow
+```
+
+Without the floor, `terraform.destroy` resolves to `terraform.__dispatch`,
+matches `terraform.*`, and runs. With it, the call is refused and the trace
+records `rule: default_action`.
+
+The floor can only restrict. `default_action: allow` is a no-op by
+construction: it never turns a policy `deny` into an `allow`. To widen access,
+write a policy rule.
+
+Unset means `deny`, so a non-strict tool with no `default_action` exposes a
+dispatcher that refuses everything until you say otherwise.
 
 ## Tool naming and dispatch
 
@@ -183,6 +228,11 @@ Each declared command gets a named tool: `terraform.plan`, `kubectl.get`, etc.
 Non-strict tools also register a `<name>.__dispatch` catch-all tool. When an agent calls a tool that doesn't have an exact match (e.g. `terraform.init`), mesh7 falls back to `terraform.__dispatch` and extracts the subcommand from the tool name.
 
 This means agents can call `terraform.init` directly — they don't need to know about `__dispatch`.
+
+The dispatcher carries no `allowed_args`, so argument filtering does not apply
+to it: only the shell-metacharacter check runs, which every argument gets
+regardless. Anything you want argument-filtered must be declared as a command.
+This is the second reason the dispatcher is floored at `deny` by default.
 
 ### MCP exposure
 

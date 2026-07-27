@@ -246,8 +246,8 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Evaluate policy
-	decision := h.Policy.Evaluate(agentID, toolName, req.Params)
+	// 4. Evaluate policy, then apply the tool's own floor (dynamic dispatchers only)
+	decision := policy.Tighten(h.Policy.Evaluate(agentID, toolName, req.Params), tool.DispatchFloor())
 	slog.Info("policy evaluated",
 		"agent", agentID, "tool", toolName,
 		"action", decision.Action, "rule", decision.Rule,
@@ -449,6 +449,18 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 
 // handleDecide evaluates policy without executing the tool.
 // Returns the decision (allow/deny/human_approval) and traces it.
+// dispatchFloor resolves a tool name the same way the call path does — exact
+// match first, then the CLI catch-all — and returns its floor action. An
+// undeclared subcommand such as terraform.destroy resolves to the dispatcher,
+// so /decide answers exactly what the call path would enforce.
+func (h *Handler) dispatchFloor(toolName string) string {
+	tool := h.Registry.Get(toolName)
+	if tool == nil {
+		tool = h.Registry.ResolveCLI(toolName)
+	}
+	return tool.DispatchFloor()
+}
+
 func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Agent     string         `json:"agent"`
@@ -486,7 +498,7 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	sessionID := extractSessionID(r)
 	start := time.Now()
 
-	decision := h.Policy.Evaluate(agentID, toolName, req.Arguments)
+	decision := policy.Tighten(h.Policy.Evaluate(agentID, toolName, req.Arguments), h.dispatchFloor(toolName))
 
 	if decision.Action == "human_approval" && h.Grants != nil {
 		if g := h.Grants.Check(agentID, toolName); g != nil {
