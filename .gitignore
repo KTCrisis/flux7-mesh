@@ -37,6 +37,7 @@ docs/agent-landscape.md
 traces.jsonl
 traces-*.jsonl
 state.db
+state.db.bak-*
 *.db-wal
 *.db-shm
 *.local.yaml
