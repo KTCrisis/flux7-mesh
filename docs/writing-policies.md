@@ -121,7 +121,7 @@ rules:
   - tools: ["payment.transfer"]
     action: allow
     condition:
-      field: "params.amount"
+      field: "amount"
       operator: "<"
       value: 100
 
@@ -131,14 +131,71 @@ rules:
 
 This allows transfers under 100 automatically, requires approval for larger amounts.
 
+### The field path
+
+`field` starts at the tool's arguments, not above them. For a call carrying
+`{"amount": 100}` the field is `amount`. For a nested `{"order": {"total": 100}}`
+it is `order.total`.
+
+Writing `params.amount` looks natural and is wrong: there is no `params` key
+inside the arguments, so the path resolves to nothing and **the condition is
+false**. A rule whose condition is false is skipped, which means an `allow`
+never allows and, worse, a `deny` never denies. Nothing is logged as an error.
+Check a new condition against `POST /decide` before trusting it.
+
 ### Supported operators
 
-| Operator | Example |
-|----------|---------|
-| `<` | `params.amount < 100` |
-| `>` | `params.amount > 1000` |
-| `==` | `params.status == 1` |
-| `!=` | `params.priority != 0` |
+| Operator | Operand | Example |
+|----------|---------|---------|
+| `<` `<=` `>` `>=` | number | `amount < 100` |
+| `==` `!=` | number or string | `env == "prod"` |
+| `contains` | string or list | `command contains "rm -rf"` |
+| `not_contains` | string or list | `command not_contains ["curl", "wget"]` |
+| `starts_with` | string or list | `file_path starts_with "/home/fluxart"` |
+| `not_starts_with` | string or list | `file_path not_starts_with ["/etc", "/usr"]` |
+
+A list operand means **any of these** for the positive forms, and therefore
+**none of these** for the negated ones:
+
+```yaml
+# Deny the shell call outright when it mentions any of these
+- tools: ["Bash"]
+  action: deny
+  condition:
+    field: "command"
+    operator: "contains"
+    value: ["rm -rf", "mkfs", "| sh", "dd if="]
+
+- tools: ["Bash"]
+  action: allow
+
+# Writes stay inside the work tree
+- tools: ["Write", "Edit"]
+  action: deny
+  condition:
+    field: "file_path"
+    operator: "starts_with"
+    value: ["/etc", "/usr", "/boot"]
+```
+
+Order matters: first match wins, so the guard goes **above** the permissive rule.
+
+### What string matching does not do
+
+It matches text, not meaning. Three consequences worth stating plainly:
+
+- **Case-sensitive.** A rule denying `rm -rf` does not stop `RM -RF`.
+- **No shell parsing.** A needle written `curl | sh` does not catch
+  `curl https://x | sh`, because nothing here understands a pipeline. Write the
+  fragment that will actually appear, such as `| sh`.
+- **Evadable by anyone trying.** `rm -r -f`, `$(echo rm) -rf`, a script file —
+  all pass. This raises the floor against accidents and careless commands. It is
+  not a sandbox, and treating it as one is the mistake it invites.
+
+Values that are not strings are matched on their rendered form, so a tool taking
+`{"args": ["push", "--force"]}` is searched as `[push --force]`. That is
+deliberate: the alternative would be to silently ignore every tool that takes an
+argument list.
 
 ## Rate limiting
 

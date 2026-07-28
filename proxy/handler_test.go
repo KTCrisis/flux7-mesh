@@ -1229,7 +1229,7 @@ func TestHandlePolicies(t *testing.T) {
 		{Name: "default", Agent: "*", Rules: []config.Rule{
 			{Tools: []string{"*.read_*"}, Action: "allow"},
 			{Tools: []string{"*.write_*"}, Action: "human_approval",
-				Condition: &config.Condition{Field: "params.size", Operator: "<", Value: 1000}},
+				Condition: &config.Condition{Field: "size", Operator: "<", Value: config.Num(1000)}},
 			{Tools: []string{"*"}, Action: "deny"},
 		}},
 	})
@@ -1262,8 +1262,12 @@ func TestHandlePolicies(t *testing.T) {
 	if policies[1].Rules[1].Condition == nil {
 		t.Fatal("expected condition on second rule")
 	}
-	if policies[1].Rules[1].Condition.Field != "params.size" {
-		t.Errorf("condition field = %q, want params.size", policies[1].Rules[1].Condition.Field)
+	if policies[1].Rules[1].Condition.Field != "size" {
+		t.Errorf("condition field = %q, want size", policies[1].Rules[1].Condition.Field)
+	}
+	// The value survives the JSON round trip as a number, not as a struct.
+	if v := policies[1].Rules[1].Condition.Value; !v.IsNum || v.Num != 1000 {
+		t.Errorf("condition value = %+v, want the number 1000", v)
 	}
 }
 

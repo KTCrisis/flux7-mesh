@@ -190,7 +190,7 @@ rules:
   - tools: ["create_refund"]
     action: allow
     condition:
-      field: "params.amount"
+      field: "amount"
       operator: "<"
       value: 500
 

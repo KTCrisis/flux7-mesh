@@ -118,43 +118,105 @@ func matchTool(tools []string, toolName string) bool {
 }
 
 // evaluateCondition checks a single condition against params.
+//
+// A condition that cannot be evaluated — missing field, unknown operator — is
+// false. The rule is then skipped and evaluation continues, which ends at the
+// default deny. That holds in both directions: an `allow` whose condition
+// cannot be checked does not allow, and a `deny` whose condition cannot be
+// checked does not deny but leaves nothing permitting the call either.
 func evaluateCondition(cond *config.Condition, params map[string]any) bool {
 	val := extractField(cond.Field, params)
 	if val == nil {
 		return false
 	}
 
+	// String operators run on the rendered value, whatever its type. A list of
+	// shell arguments renders as `[rm -rf /]`, so `contains: "rm -rf"` sees it —
+	// the alternative would be to silently ignore every tool that takes argv
+	// rather than a command line.
+	switch cond.Operator {
+	case "contains", "not_contains", "starts_with", "not_starts_with":
+		return evaluateString(cond, fmt.Sprintf("%v", val))
+	}
+
 	numVal, err := toFloat(val)
 	if err != nil {
-		// String comparison for == and !=
+		// A non-numeric field compared with == or != is a string comparison.
 		strVal := fmt.Sprintf("%v", val)
-		target := fmt.Sprintf("%v", cond.Value)
 		switch cond.Operator {
 		case "==":
-			return strVal == target
+			return anyOf(cond.Value.Strings, func(s string) bool { return strVal == s })
 		case "!=":
-			return strVal != target
+			return !anyOf(cond.Value.Strings, func(s string) bool { return strVal == s })
 		default:
 			return false
 		}
 	}
 
+	if !cond.Value.IsNum {
+		// A numeric field against a string operand: only equality is meaningful,
+		// and it is compared as text so `value: "42"` still behaves.
+		strVal := fmt.Sprintf("%v", val)
+		switch cond.Operator {
+		case "==":
+			return anyOf(cond.Value.Strings, func(s string) bool { return strVal == s })
+		case "!=":
+			return !anyOf(cond.Value.Strings, func(s string) bool { return strVal == s })
+		}
+		return false
+	}
+
 	switch cond.Operator {
 	case "<":
-		return numVal < cond.Value
+		return numVal < cond.Value.Num
 	case "<=":
-		return numVal <= cond.Value
+		return numVal <= cond.Value.Num
 	case ">":
-		return numVal > cond.Value
+		return numVal > cond.Value.Num
 	case ">=":
-		return numVal >= cond.Value
+		return numVal >= cond.Value.Num
 	case "==":
-		return numVal == cond.Value
+		return numVal == cond.Value.Num
 	case "!=":
-		return numVal != cond.Value
+		return numVal != cond.Value.Num
 	default:
 		return false
 	}
+}
+
+// evaluateString applies the string operators. A list operand means "any of
+// these" for the positive forms, and therefore "none of these" for the negated
+// ones — which is what a deny list and an allow guard respectively need.
+//
+// Matching is case-sensitive. A rule that denies "rm -rf" does not stop
+// "RM -RF", and pretending otherwise would invite the belief that this
+// inspects intent rather than text.
+func evaluateString(cond *config.Condition, haystack string) bool {
+	needles := cond.Value.Strings
+	if len(needles) == 0 {
+		return false
+	}
+
+	switch cond.Operator {
+	case "contains":
+		return anyOf(needles, func(n string) bool { return strings.Contains(haystack, n) })
+	case "not_contains":
+		return !anyOf(needles, func(n string) bool { return strings.Contains(haystack, n) })
+	case "starts_with":
+		return anyOf(needles, func(n string) bool { return strings.HasPrefix(haystack, n) })
+	case "not_starts_with":
+		return !anyOf(needles, func(n string) bool { return strings.HasPrefix(haystack, n) })
+	}
+	return false
+}
+
+func anyOf(items []string, pred func(string) bool) bool {
+	for _, it := range items {
+		if pred(it) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractField navigates a dotted path like "params.amount" in a nested map.

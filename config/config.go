@@ -1,10 +1,12 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -193,9 +195,100 @@ type Rule struct {
 }
 
 type Condition struct {
-	Field    string  `yaml:"field" json:"field"`
-	Operator string  `yaml:"operator" json:"operator"`
-	Value    float64 `yaml:"value" json:"value"`
+	// Field is a dotted path into the tool's arguments, and it starts at the
+	// arguments themselves: for `{"command": "rm -rf /"}` the field is
+	// `command`, not `params.command`. A path that resolves to nothing makes
+	// the condition false, so the rule is skipped and evaluation continues —
+	// which ends at the default deny.
+	Field    string    `yaml:"field" json:"field"`
+	Operator string    `yaml:"operator" json:"operator"`
+	Value    CondValue `yaml:"value" json:"value"`
+}
+
+// CondValue is the right-hand side of a condition. YAML decides its shape:
+//
+//	value: 500                 → a number, for <, <=, >, >=, ==, !=
+//	value: "rm -rf"            → a string, for contains, starts_with, ==, !=
+//	value: ["rm -rf", "sudo"]  → a list, matched as "any of these"
+//
+// One type rather than two fields, because "the thing being compared" is one
+// idea and splitting it across `value:` and `text:` would make every policy
+// author choose between them.
+type CondValue struct {
+	Num     float64
+	IsNum   bool
+	Strings []string
+}
+
+// Num builds a numeric condition value. For Go callers and tests; YAML and JSON
+// go through the unmarshallers below.
+func Num(f float64) CondValue {
+	return CondValue{Num: f, IsNum: true, Strings: []string{strconv.FormatFloat(f, 'f', -1, 64)}}
+}
+
+// Text builds a string condition value, one or several.
+func Text(s ...string) CondValue {
+	return CondValue{Strings: s}
+}
+
+// UnmarshalYAML accepts a number, a string, or a sequence of either.
+func (c *CondValue) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var f float64
+		if err := node.Decode(&f); err == nil {
+			c.Num, c.IsNum = f, true
+			c.Strings = []string{node.Value}
+			return nil
+		}
+		var s string
+		if err := node.Decode(&s); err != nil {
+			return fmt.Errorf("condition value: %w", err)
+		}
+		c.Strings = []string{s}
+		return nil
+	case yaml.SequenceNode:
+		var items []string
+		if err := node.Decode(&items); err != nil {
+			return fmt.Errorf("condition value list: %w", err)
+		}
+		c.Strings = items
+		return nil
+	default:
+		return fmt.Errorf("condition value must be a number, a string, or a list")
+	}
+}
+
+// MarshalJSON keeps GET /policies readable: a number stays a number, a single
+// string stays a string, a list stays a list.
+func (c CondValue) MarshalJSON() ([]byte, error) {
+	if c.IsNum {
+		return json.Marshal(c.Num)
+	}
+	if len(c.Strings) == 1 {
+		return json.Marshal(c.Strings[0])
+	}
+	return json.Marshal(c.Strings)
+}
+
+func (c *CondValue) UnmarshalJSON(data []byte) error {
+	var f float64
+	if err := json.Unmarshal(data, &f); err == nil {
+		c.Num, c.IsNum = f, true
+		c.Strings = []string{strconv.FormatFloat(f, 'f', -1, 64)}
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		c.Strings = []string{s}
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal(data, &items); err != nil {
+		return fmt.Errorf("condition value must be a number, a string, or a list")
+	}
+	c.Strings = items
+	return nil
 }
 
 func Load(path string) (*Config, error) {

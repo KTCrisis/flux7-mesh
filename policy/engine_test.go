@@ -15,10 +15,10 @@ func testEngine() *Engine {
 			Rules: []config.Rule{
 				{Tools: []string{"get_order", "get_customer"}, Action: "allow"},
 				{Tools: []string{"create_refund"}, Action: "allow", Condition: &config.Condition{
-					Field: "params.amount", Operator: "<", Value: 500,
+					Field: "amount", Operator: "<", Value: config.Num(500),
 				}},
 				{Tools: []string{"create_refund"}, Action: "deny", Condition: &config.Condition{
-					Field: "params.amount", Operator: ">=", Value: 500,
+					Field: "amount", Operator: ">=", Value: config.Num(500),
 				}},
 				{Tools: []string{"delete_customer"}, Action: "deny"},
 			},
@@ -61,9 +61,9 @@ func TestEvaluateDeny(t *testing.T) {
 
 func TestEvaluateConditionAllow(t *testing.T) {
 	e := testEngine()
-	d := e.Evaluate("support-bot", "create_refund", map[string]any{
-		"params": map[string]any{"amount": 100.0},
-	})
+	// The engine receives the tool arguments themselves, not a wrapper: the
+	// field path starts at `amount`, never `params.amount`.
+	d := e.Evaluate("support-bot", "create_refund", map[string]any{"amount": 100.0})
 	if d.Action != "allow" {
 		t.Errorf("action = %q, want allow (amount < 500)", d.Action)
 	}
@@ -71,9 +71,7 @@ func TestEvaluateConditionAllow(t *testing.T) {
 
 func TestEvaluateConditionDeny(t *testing.T) {
 	e := testEngine()
-	d := e.Evaluate("support-bot", "create_refund", map[string]any{
-		"params": map[string]any{"amount": 999.0},
-	})
+	d := e.Evaluate("support-bot", "create_refund", map[string]any{"amount": 999.0})
 	if d.Action != "deny" {
 		t.Errorf("action = %q, want deny (amount >= 500)", d.Action)
 	}

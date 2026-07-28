@@ -132,8 +132,8 @@ policies:
 	if rule.Condition.Operator != "<" {
 		t.Errorf("operator = %q", rule.Condition.Operator)
 	}
-	if rule.Condition.Value != 500 {
-		t.Errorf("value = %f", rule.Condition.Value)
+	if !rule.Condition.Value.IsNum || rule.Condition.Value.Num != 500 {
+		t.Errorf("value = %+v", rule.Condition.Value)
 	}
 }
 
