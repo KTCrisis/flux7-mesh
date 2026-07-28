@@ -33,6 +33,23 @@ type CLIToolMeta struct {
 	IsCatchAll    bool              `json:"is_catch_all"`             // true for dynamic dispatch
 }
 
+// DispatchFloor returns the least-permissive action this tool tolerates
+// regardless of policy, or "" when no floor applies.
+//
+// It applies only to the dynamic dispatcher (`<name>.__dispatch`) of a
+// non-strict CLI tool. Declared commands are governed by policy alone —
+// declaring a command is itself the operator's grant. The dispatcher accepts
+// any subcommand the binary knows, so a glob rule such as
+// `terraform.*: allow` would otherwise hand over `destroy` along with `plan`.
+//
+// Nil-safe: an unknown tool has no floor.
+func (t *Tool) DispatchFloor() string {
+	if t == nil || t.CLIMeta == nil || !t.CLIMeta.IsCatchAll {
+		return ""
+	}
+	return t.CLIMeta.DefaultAction
+}
+
 // Param describes a single parameter for a tool.
 type Param struct {
 	Name     string `json:"name"`
