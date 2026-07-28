@@ -38,6 +38,14 @@ type Entry struct {
 	// CLI fields (populated when source = cli)
 	ExitCode *int `json:"exit_code,omitempty"`
 
+	// Lineage fields (populated when a temporal grant authorized the call).
+	// GrantID is also encoded in PolicyRule as "grant:<id>", but only as a
+	// string an operator would have to parse; this field is the queryable one.
+	// ParentTraceID is the call that motivated the grant, when the grant
+	// recorded an origin — it is what makes the causal chain walkable.
+	GrantID       string `json:"grant_id,omitempty"`
+	ParentTraceID string `json:"parent_trace_id,omitempty"`
+
 	// Approval fields (populated when policy = human_approval)
 	ApprovalID     string `json:"approval_id,omitempty"`
 	ApprovalStatus string `json:"approval_status,omitempty"` // approved, denied, timeout
@@ -275,6 +283,54 @@ func (s *Store) QueryBySession(sessionID string, limit int) []Entry {
 		}
 	}
 	return result
+}
+
+// Chain walks a trace back through ParentTraceID and returns the causal chain,
+// oldest first, with the requested entry last. It answers "why was this
+// allowed?" by naming the decision upstream of the grant that authorized it.
+//
+// A chain of one is the honest answer for a call nobody had to authorize, and
+// for a grant issued without an origin. The walk is bounded by maxDepth and by
+// a seen-set, so a cycle in the data cannot hang the caller.
+func (s *Store) Chain(traceID string, maxDepth int) []Entry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if maxDepth <= 0 {
+		maxDepth = 10
+	}
+
+	byID := func(id string) *Entry {
+		for i := len(s.entries) - 1; i >= 0; i-- {
+			if s.entries[i].TraceID == id {
+				return &s.entries[i]
+			}
+		}
+		return nil
+	}
+
+	e := byID(traceID)
+	if e == nil {
+		return nil
+	}
+
+	seen := map[string]bool{traceID: true}
+	chain := []Entry{*e}
+	for len(chain) < maxDepth {
+		parentID := chain[0].ParentTraceID
+		if parentID == "" || seen[parentID] {
+			break
+		}
+		parent := byID(parentID)
+		if parent == nil {
+			// The ancestor has been evicted or rotated out. Stop here rather
+			// than pretending the chain ends at a root.
+			break
+		}
+		seen[parentID] = true
+		chain = append([]Entry{*parent}, chain...)
+	}
+	return chain
 }
 
 // Update finds a trace entry by TraceID and applies fn to mutate it.

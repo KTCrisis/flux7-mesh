@@ -1566,3 +1566,172 @@ func TestRequireAuthOffAllowsAnonymous(t *testing.T) {
 		t.Errorf("anonymous /tools without RequireAuth = %d, want 200", w.Code)
 	}
 }
+
+// End to end: a grant that records its origin makes every call it authorizes
+// point back at the call that motivated it. Without this, "why was this
+// allowed?" stops at "a grant existed".
+func TestGrantOriginPropagatesToTrace(t *testing.T) {
+	handler, _ := approvalHandler(t)
+	handler.Grants = grant.NewStore()
+
+	// The call an operator approved, and which motivated the grant.
+	originTrace := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	handler.Traces.Record(trace.Entry{
+		TraceID: originTrace, AgentID: "claude", Tool: "risky_tool",
+		Policy: "human_approval", ApprovalID: "appr-1",
+	})
+
+	handler.Grants.AddWithOrigin("claude", "risky_tool", "tester", 1*time.Hour, grant.Origin{
+		ApprovalID: "appr-1",
+		TraceID:    originTrace,
+	})
+
+	// A call the grant now waves through.
+	req := newLoopbackReq("POST", "/tool/risky_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer agent:claude")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200 (the grant should bypass approval)", w.Code)
+	}
+
+	var resp ToolCallResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	chain := handler.Traces.Chain(resp.TraceID, 10)
+	if len(chain) != 2 {
+		t.Fatalf("expected a chain of 2, got %d", len(chain))
+	}
+	if chain[0].TraceID != originTrace {
+		t.Errorf("expected the approved call at the root, got %s", chain[0].TraceID)
+	}
+	if chain[1].GrantID == "" {
+		t.Error("expected the authorized call to name the grant that allowed it")
+	}
+}
+
+// A grant with no recorded origin still works; it simply yields a chain of one.
+func TestGrantWithoutOriginLeavesTraceRootless(t *testing.T) {
+	handler, _ := approvalHandler(t)
+	handler.Grants = grant.NewStore()
+	handler.Grants.Add("claude", "risky_tool", "tester", 1*time.Hour)
+
+	req := newLoopbackReq("POST", "/tool/risky_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer agent:claude")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	var resp ToolCallResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	chain := handler.Traces.Chain(resp.TraceID, 10)
+	if len(chain) != 1 {
+		t.Fatalf("expected a chain of 1, got %d", len(chain))
+	}
+	if chain[0].ParentTraceID != "" {
+		t.Errorf("expected no parent, got %q", chain[0].ParentTraceID)
+	}
+}
+
+// POST /grants must accept and echo an origin.
+func TestCreateGrantRecordsOrigin(t *testing.T) {
+	handler, _ := approvalHandler(t)
+	handler.Grants = grant.NewStore()
+
+	body := `{"agent":"claude","tools":"risky_tool","duration":"1h","approval_id":"appr-7","trace_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`
+	req := newLoopbackReq("POST", "/grants", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("status = %d, want 201: %s", w.Code, w.Body.String())
+	}
+	var view map[string]any
+	json.NewDecoder(w.Body).Decode(&view)
+	if view["approval_id"] != "appr-7" {
+		t.Errorf("expected the approval id echoed back, got %v", view["approval_id"])
+	}
+
+	stored := handler.Grants.List()
+	if len(stored) != 1 || stored[0].Origin.ApprovalID != "appr-7" {
+		t.Errorf("origin not stored on the grant: %+v", stored)
+	}
+}
+
+func TestTraceWhyEndpoint(t *testing.T) {
+	handler, _ := approvalHandler(t)
+
+	root := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	leaf := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	handler.Traces.Record(trace.Entry{TraceID: root, AgentID: "claude", Tool: "risky_tool", Policy: "human_approval"})
+	handler.Traces.Record(trace.Entry{TraceID: leaf, AgentID: "claude", Tool: "risky_tool", Policy: "allow",
+		GrantID: "g1", ParentTraceID: root})
+
+	req := newLoopbackReq("GET", "/traces/"+leaf+"/why", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		ChainLength int           `json:"chain_length"`
+		Chain       []trace.Entry `json:"chain"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.ChainLength != 2 {
+		t.Fatalf("expected chain_length 2, got %d", resp.ChainLength)
+	}
+	if resp.Chain[0].TraceID != root {
+		t.Errorf("expected the root first, got %s", resp.Chain[0].TraceID)
+	}
+}
+
+func TestTraceWhyUnknownTraceIs404(t *testing.T) {
+	handler, _ := approvalHandler(t)
+	req := newLoopbackReq("GET", "/traces/deadbeef/why", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != 404 {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+// The approval view must expose the call awaiting the decision. Without it an
+// operator extending the decision into a grant has no origin to record, and the
+// whole chain starts empty.
+func TestApprovalViewExposesTraceID(t *testing.T) {
+	handler, _ := approvalHandler(t)
+
+	go func() {
+		req := newLoopbackReq("POST", "/tool/risky_tool", strings.NewReader(`{"params":{}}`))
+		req.Header.Set("Authorization", "Bearer agent:claude")
+		req.Header.Set("X-Trace-ID", "0123456789abcdef0123456789abcdef")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+
+	// Wait for the approval to land.
+	var pending []*approval.PendingApproval
+	for range 100 {
+		pending = handler.Approvals.ListPending()
+		if len(pending) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(pending) == 0 {
+		t.Fatal("no approval was submitted")
+	}
+
+	req := newLoopbackReq("GET", "/approvals/"+pending[0].ID, nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	var view map[string]any
+	json.NewDecoder(w.Body).Decode(&view)
+	if view["trace_id"] != "0123456789abcdef0123456789abcdef" {
+		t.Errorf("trace_id = %v, want the trace of the awaiting call", view["trace_id"])
+	}
+}

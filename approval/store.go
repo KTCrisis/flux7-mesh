@@ -144,12 +144,20 @@ func (s *Store) Timeout() time.Duration {
 // The caller should block on the returned PendingApproval.Result channel.
 // callbackURL is optional — set from X-Callback-URL header for HTTP agents.
 func (s *Store) Submit(agentID, tool, policyRule string, params map[string]any, callbackURL string) *PendingApproval {
+	return s.SubmitWithTrace(agentID, tool, policyRule, params, callbackURL, "")
+}
+
+// SubmitWithTrace records which call is waiting on the decision. Without it the
+// approval cannot be tied back to anything: an operator extending the decision
+// into a grant would have no origin to record.
+func (s *Store) SubmitWithTrace(agentID, tool, policyRule string, params map[string]any, callbackURL, traceID string) *PendingApproval {
 	pa := &PendingApproval{
 		ID:          newID(),
 		AgentID:     agentID,
 		Tool:        tool,
 		Params:      params,
 		PolicyRule:  policyRule,
+		TraceID:     traceID,
 		CallbackURL: callbackURL,
 		Status:      StatusPending,
 		CreatedAt:   time.Now().UTC(),

@@ -29,6 +29,10 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// schemaVersion is the migration level this build expects. Bump it with every
+// new `if version < N` block below.
+const schemaVersion = 2
+
 func migrate(db *sql.DB) error {
 	var version int
 	db.QueryRow("PRAGMA user_version").Scan(&version)
@@ -65,6 +69,22 @@ func migrate(db *sql.DB) error {
 		for _, s := range stmts {
 			if _, err := db.Exec(s); err != nil {
 				return fmt.Errorf("schema v1: %w", err)
+			}
+		}
+	}
+
+	// v2 records where a grant came from. Existing rows keep '': grants issued
+	// before this migration have no recoverable origin, and an empty string
+	// says so honestly rather than inventing a link.
+	if version < 2 {
+		stmts := []string{
+			`ALTER TABLE grants ADD COLUMN approval_id TEXT DEFAULT ''`,
+			`ALTER TABLE grants ADD COLUMN origin_trace_id TEXT DEFAULT ''`,
+			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("schema v2: %w", err)
 			}
 		}
 	}

@@ -104,6 +104,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Control plane: operator actions, require admin auth ---
 	case r.Method == "GET" && r.URL.Path == "/traces":
 		h.admin(r, w, h.handleTraces)
+	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/traces/") && strings.HasSuffix(r.URL.Path, "/why"):
+		h.admin(r, w, h.handleTraceWhy)
 	case r.Method == "GET" && r.URL.Path == "/otel-traces":
 		h.admin(r, w, h.handleOTELTraces)
 	case r.Method == "GET" && r.URL.Path == "/approvals":
@@ -274,14 +276,18 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. Check temporal grants (bypass approval if granted)
+	var grantID, parentTraceID string
 	if decision.Action == "human_approval" && h.Grants != nil {
 		if g := h.Grants.Check(agentID, toolName); g != nil {
 			slog.Info("grant override",
 				"agent", agentID, "tool", toolName,
-				"grant", g.ID, "remaining", g.Remaining().Truncate(time.Second))
+				"grant", g.ID, "remaining", g.Remaining().Truncate(time.Second),
+				"origin_trace", g.Origin.TraceID)
 			decision.Action = "allow"
 			decision.Rule = "grant:" + g.ID
 			decision.Reason = fmt.Sprintf("temporal grant %s (expires %s)", g.ID, g.ExpiresAt.Format(time.RFC3339))
+			grantID = g.ID
+			parentTraceID = g.Origin.TraceID
 		}
 	}
 
@@ -320,7 +326,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		}
 
 		callbackURL := r.Header.Get("X-Callback-URL")
-		pending := h.Approvals.Submit(agentID, toolName, decision.Rule, req.Params, callbackURL)
+		pending := h.Approvals.SubmitWithTrace(agentID, toolName, decision.Rule, req.Params, callbackURL, traceID)
 
 		entry := trace.Entry{
 			TraceID:    traceID,
@@ -421,6 +427,8 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		Params:                req.Params,
 		Policy:                "allow",
 		PolicyRule:            decision.Rule,
+		GrantID:               grantID,
+		ParentTraceID:         parentTraceID,
 		StatusCode:            statusCode,
 		LatencyMs:             latency,
 		EstimatedInputTokens:  inTok,
@@ -488,11 +496,14 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 
 	decision := h.Policy.Evaluate(agentID, toolName, req.Arguments)
 
+	var grantID, parentTraceID string
 	if decision.Action == "human_approval" && h.Grants != nil {
 		if g := h.Grants.Check(agentID, toolName); g != nil {
 			decision.Action = "allow"
 			decision.Rule = "grant:" + g.ID
 			decision.Reason = fmt.Sprintf("temporal grant %s", g.ID)
+			grantID = g.ID
+			parentTraceID = g.Origin.TraceID
 		}
 	}
 
@@ -505,14 +516,16 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entry := trace.Entry{
-		TraceID:    traceID,
-		SessionID:  sessionID,
-		AgentID:    agentID,
-		Tool:       toolName,
-		Params:     req.Arguments,
-		Policy:     decision.Action,
-		PolicyRule: decision.Rule,
-		LatencyMs:  time.Since(start).Milliseconds(),
+		TraceID:       traceID,
+		SessionID:     sessionID,
+		AgentID:       agentID,
+		Tool:          toolName,
+		Params:        req.Arguments,
+		Policy:        decision.Action,
+		PolicyRule:    decision.Rule,
+		GrantID:       grantID,
+		ParentTraceID: parentTraceID,
+		LatencyMs:     time.Since(start).Milliseconds(),
 	}
 	h.Traces.Record(entry)
 
@@ -671,6 +684,39 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	tool := r.URL.Query().Get("tool")
 	writeJSON(w, 200, h.Traces.Query(agent, tool, 100))
+}
+
+// handleTraceWhy answers "why was this call allowed?" by returning the chain of
+// authority behind a trace, oldest first. Each hop is a call that motivated the
+// grant which authorized the next one.
+//
+// A chain of one is a complete answer, not a failure: the call needed no grant,
+// or the grant that covered it was issued without an origin.
+// Query param: depth (default 10, capped at 50).
+func (h *Handler) handleTraceWhy(w http.ResponseWriter, r *http.Request) {
+	traceID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/traces/"), "/why")
+	if traceID == "" || strings.Contains(traceID, "/") {
+		writeJSON(w, 400, map[string]string{"error": "trace id required"})
+		return
+	}
+
+	depth := 10
+	if d := r.URL.Query().Get("depth"); d != "" {
+		if n, err := strconv.Atoi(d); err == nil && n > 0 {
+			depth = min(n, 50)
+		}
+	}
+
+	chain := h.Traces.Chain(traceID, depth)
+	if len(chain) == 0 {
+		writeJSON(w, 404, map[string]string{"error": "trace not found"})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"trace_id":     traceID,
+		"chain_length": len(chain),
+		"chain":        chain,
+	})
 }
 
 // handleOTELTraces returns recent trace entries converted to OTLP JSON format.
@@ -832,11 +878,15 @@ func (h *Handler) extractAgentID(r *http.Request) (string, error) {
 // --- Approval endpoints ---
 
 type approvalView struct {
-	ID            string         `json:"id"`
-	AgentID       string         `json:"agent_id"`
-	Tool          string         `json:"tool"`
-	Params        map[string]any `json:"params"`
-	PolicyRule    string         `json:"policy_rule"`
+	ID      string         `json:"id"`
+	AgentID string         `json:"agent_id"`
+	Tool    string         `json:"tool"`
+	Params  map[string]any `json:"params"`
+	// TraceID is the call awaiting this decision. An operator extending the
+	// decision into a grant needs it, otherwise the grant has no origin to
+	// record and the chain of authority starts empty.
+	TraceID       string `json:"trace_id,omitempty"`
+	PolicyRule    string `json:"policy_rule"`
 	Status        string         `json:"status"`
 	CreatedAt     time.Time      `json:"created_at"`
 	Remaining     string         `json:"remaining,omitempty"`
@@ -864,6 +914,7 @@ func (h *Handler) toApprovalView(pa *approval.PendingApproval) approvalView {
 		AgentID:       pa.AgentID,
 		Tool:          pa.Tool,
 		Params:        params,
+		TraceID:       pa.TraceID,
 		PolicyRule:    pa.PolicyRule,
 		Status:        string(pa.Status),
 		CreatedAt:     pa.CreatedAt,
@@ -931,14 +982,7 @@ func (h *Handler) handleGetApproval(w http.ResponseWriter, r *http.Request) {
 	if h.Grants != nil {
 		for _, g := range h.Grants.List() {
 			if match.Glob(g.Agent, pa.AgentID) {
-				detail.ActiveGrants = append(detail.ActiveGrants, grantView{
-					ID:        g.ID,
-					Agent:     g.Agent,
-					Tools:     g.Tools,
-					ExpiresAt: g.ExpiresAt.Format(time.RFC3339),
-					Remaining: g.Remaining().Truncate(time.Second).String(),
-					GrantedBy: g.GrantedBy,
-				})
+				detail.ActiveGrants = append(detail.ActiveGrants, toGrantView(g))
 			}
 		}
 	}
@@ -1000,15 +1044,36 @@ type grantRequest struct {
 	Agent    string `json:"agent"`
 	Tools    string `json:"tools"`
 	Duration string `json:"duration"` // e.g. "30m", "2h"
+
+	// Optional origin: the approval or the call this grant answers. Both are
+	// free-form on purpose — the mesh does not require an operator to justify a
+	// grant, it only records the justification when one is offered.
+	ApprovalID string `json:"approval_id,omitempty"`
+	TraceID    string `json:"trace_id,omitempty"`
 }
 
 type grantView struct {
-	ID        string `json:"id"`
-	Agent     string `json:"agent"`
-	Tools     string `json:"tools"`
-	ExpiresAt string `json:"expires_at"`
-	Remaining string `json:"remaining"`
-	GrantedBy string `json:"granted_by"`
+	ID         string `json:"id"`
+	Agent      string `json:"agent"`
+	Tools      string `json:"tools"`
+	ExpiresAt  string `json:"expires_at"`
+	Remaining  string `json:"remaining"`
+	GrantedBy  string `json:"granted_by"`
+	ApprovalID string `json:"approval_id,omitempty"`
+	TraceID    string `json:"trace_id,omitempty"`
+}
+
+func toGrantView(g *grant.Grant) grantView {
+	return grantView{
+		ID:         g.ID,
+		Agent:      g.Agent,
+		Tools:      g.Tools,
+		ExpiresAt:  g.ExpiresAt.Format(time.RFC3339),
+		Remaining:  g.Remaining().Truncate(time.Second).String(),
+		GrantedBy:  g.GrantedBy,
+		ApprovalID: g.Origin.ApprovalID,
+		TraceID:    g.Origin.TraceID,
+	}
 }
 
 func (h *Handler) handleListGrants(w http.ResponseWriter, _ *http.Request) {
@@ -1019,14 +1084,7 @@ func (h *Handler) handleListGrants(w http.ResponseWriter, _ *http.Request) {
 	grants := h.Grants.List()
 	views := make([]grantView, len(grants))
 	for i, g := range grants {
-		views[i] = grantView{
-			ID:        g.ID,
-			Agent:     g.Agent,
-			Tools:     g.Tools,
-			ExpiresAt: g.ExpiresAt.Format(time.RFC3339),
-			Remaining: g.Remaining().Truncate(time.Second).String(),
-			GrantedBy: g.GrantedBy,
-		}
+		views[i] = toGrantView(g)
 	}
 	writeJSON(w, 200, views)
 }
@@ -1050,15 +1108,11 @@ func (h *Handler) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid duration: " + err.Error()})
 		return
 	}
-	g := h.Grants.Add(req.Agent, req.Tools, "http:"+r.RemoteAddr, dur)
-	writeJSON(w, 201, grantView{
-		ID:        g.ID,
-		Agent:     g.Agent,
-		Tools:     g.Tools,
-		ExpiresAt: g.ExpiresAt.Format(time.RFC3339),
-		Remaining: g.Remaining().Truncate(time.Second).String(),
-		GrantedBy: g.GrantedBy,
+	g := h.Grants.AddWithOrigin(req.Agent, req.Tools, "http:"+r.RemoteAddr, dur, grant.Origin{
+		ApprovalID: req.ApprovalID,
+		TraceID:    req.TraceID,
 	})
+	writeJSON(w, 201, toGrantView(g))
 }
 
 func (h *Handler) handleRevokeGrant(w http.ResponseWriter, r *http.Request) {

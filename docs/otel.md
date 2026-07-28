@@ -37,8 +37,45 @@ Every span includes the following attributes:
 | `approval.duration_ms` | int | Time spent waiting for human approval |
 | `llm.token.input` | int | Estimated input tokens (chars/4 heuristic) |
 | `llm.token.output` | int | Estimated output tokens |
+| `grant.id` | string | Temporal grant that authorized the call (when one did) |
+| `mesh.parent_trace_id` | string | The call that motivated that grant (when it recorded an origin) |
 
 Span kind is `SERVER` (3). Status code is `OK` (1) for allowed calls, `ERROR` (2) for denied or failed calls.
+
+## Chain of authority
+
+Span IDs are derived from the trace ID (its first 16 hex chars) rather than
+generated at random. A random span ID is unreferenceable, so no span could ever
+name another as its parent.
+
+When a temporal grant authorizes a call, and that grant recorded the call that
+motivated it, the span carries `parentSpanId` pointing at the authorizing call.
+Jaeger, Tempo and any OTLP viewer then render the real shape:
+
+```
+approved call (human_approval)
+└── call the grant waved through
+    └── the next one
+```
+
+This is the one causal edge a proxy can observe rather than be told. The agent's
+reasoning stays invisible — mesh7 never claims to know *why the model chose* a
+tool — but the chain of authority is mechanical and complete.
+
+A root span with no `parentSpanId` means the call needed no grant, or the grant
+covering it was issued without an origin. Both are honest answers, not gaps.
+
+Origin is recorded at grant creation, and is always optional:
+
+```bash
+curl -X POST localhost:9090/grants -d '{
+  "agent": "claude", "tools": "filesystem.write_*", "duration": "1h",
+  "approval_id": "appr-7", "trace_id": "<the call being approved>"
+}'
+```
+
+`GET /traces/{id}/why?depth=10` walks the same chain over the HTTP API, oldest
+first, without an OTLP backend.
 
 ## JSONL file mode
 
