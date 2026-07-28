@@ -14,12 +14,13 @@ func (s *Store) dbSave(g *Grant) {
 		return
 	}
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO grants (id, agent, tools, expires_at, granted_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO grants (id, agent, tools, expires_at, granted_by, created_at, approval_id, origin_trace_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		g.ID, g.Agent, g.Tools,
 		g.ExpiresAt.UTC().Format(time.RFC3339Nano),
 		g.GrantedBy,
 		g.CreatedAt.UTC().Format(time.RFC3339Nano),
+		g.Origin.ApprovalID, g.Origin.TraceID,
 	)
 	if err != nil {
 		slog.Warn("failed to persist grant", "id", g.ID, "error", err)
@@ -48,7 +49,9 @@ func (s *Store) LoadAll() (int, error) {
 	s.dbCleanup()
 
 	rows, err := s.db.Query(
-		`SELECT id, agent, tools, expires_at, granted_by, created_at FROM grants`,
+		`SELECT id, agent, tools, expires_at, granted_by, created_at,
+		        COALESCE(approval_id, ''), COALESCE(origin_trace_id, '')
+		 FROM grants`,
 	)
 	if err != nil {
 		return 0, err
@@ -58,10 +61,11 @@ func (s *Store) LoadAll() (int, error) {
 	loaded := 0
 	for rows.Next() {
 		var (
-			g                        Grant
-			expiresAt, createdAt     string
+			g                    Grant
+			expiresAt, createdAt string
 		)
-		if err := rows.Scan(&g.ID, &g.Agent, &g.Tools, &expiresAt, &g.GrantedBy, &createdAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Agent, &g.Tools, &expiresAt, &g.GrantedBy, &createdAt,
+			&g.Origin.ApprovalID, &g.Origin.TraceID); err != nil {
 			slog.Warn("failed to scan grant row", "error", err)
 			continue
 		}

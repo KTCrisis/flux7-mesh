@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -121,6 +122,7 @@ type otlpScope struct {
 type otlpSpan struct {
 	TraceID            string     `json:"traceId"`
 	SpanID             string     `json:"spanId"`
+	ParentSpanID       string     `json:"parentSpanId,omitempty"`
 	Name               string     `json:"name"`
 	Kind               int        `json:"kind"` // 3 = SERVER
 	StartTimeUnixNano  string     `json:"startTimeUnixNano"`
@@ -158,8 +160,21 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 	if len(traceID) != 32 || !isHex(traceID) {
 		traceID = randomTraceID()
 	}
-	// Span ID: 8 random bytes (16 hex chars) per OTEL spec
-	spanID := randomSpanID()
+	// Span ID: 16 hex chars, derived from the trace ID rather than random.
+	// A random span ID is unreferenceable — nothing downstream can point at it —
+	// so a parent link would be impossible to express. Deriving it makes any
+	// span addressable from its trace ID alone, which is what parentSpanId below
+	// needs. Entropy is unchanged: the trace ID is already 16 random bytes.
+	spanID := spanIDFor(traceID)
+
+	// A grant that recorded its origin makes the authorizing call the parent of
+	// every call it later waves through. This is the one causal edge a proxy can
+	// observe without being told: the agent's reasoning stays invisible, but the
+	// chain of authority does not.
+	parentSpanID := ""
+	if entry.ParentTraceID != "" && len(entry.ParentTraceID) == 32 && isHex(entry.ParentTraceID) {
+		parentSpanID = spanIDFor(entry.ParentTraceID)
+	}
 
 	attrs := []otlpKV{
 		{Key: "agent.id", Value: strVal(entry.AgentID)},
@@ -174,6 +189,12 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 	}
 	if entry.Error != "" {
 		attrs = append(attrs, otlpKV{Key: "error.message", Value: strVal(entry.Error)})
+	}
+	if entry.GrantID != "" {
+		attrs = append(attrs, otlpKV{Key: "grant.id", Value: strVal(entry.GrantID)})
+	}
+	if entry.ParentTraceID != "" {
+		attrs = append(attrs, otlpKV{Key: "mesh.parent_trace_id", Value: strVal(entry.ParentTraceID)})
 	}
 	if entry.ApprovalID != "" {
 		attrs = append(attrs, otlpKV{Key: "approval.id", Value: strVal(entry.ApprovalID)})
@@ -204,6 +225,7 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 				Spans: []otlpSpan{{
 					TraceID:           traceID,
 					SpanID:            spanID,
+					ParentSpanID:      parentSpanID,
 					Name:              entry.Tool,
 					Kind:              3,
 					StartTimeUnixNano: fmt.Sprintf("%d", startTime.UnixNano()),
@@ -254,6 +276,17 @@ func (e *OTELExporter) Close() error {
 		return e.file.Close()
 	}
 	return nil
+}
+
+// spanIDFor derives a span ID from a trace ID: the first 8 bytes, per the OTEL
+// requirement of 16 hex chars. Deterministic on purpose, so that a span can be
+// referenced as a parent from nothing but the trace ID of the call it belongs to.
+// Malformed input falls back to a random ID rather than a short or padded one.
+func spanIDFor(traceID string) string {
+	if len(traceID) < 16 || !isHex(traceID) {
+		return randomSpanID()
+	}
+	return strings.ToLower(traceID[:16])
 }
 
 // randomSpanID returns 8 random bytes as a 16-char hex string.

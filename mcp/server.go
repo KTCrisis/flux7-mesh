@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/grant"
 	"github.com/KTCrisis/flux7-mesh/internal/match"
 	"github.com/KTCrisis/flux7-mesh/policy"
 	"github.com/KTCrisis/flux7-mesh/proxy"
@@ -316,9 +317,11 @@ func (s *Server) handleToolsList() map[string]any {
 			InputSchema: MCPSchema{
 				Type: "object",
 				Properties: map[string]MCPProp{
-					"agent":    {Type: "string", Description: "Agent glob the grant applies to (e.g. worker-*). Defaults to the calling agent."},
-					"tools":    {Type: "string", Description: "Tool glob pattern (e.g. filesystem.write_*, gmail.*)"},
-					"duration": {Type: "string", Description: "Duration (e.g. 30m, 2h, 1h30m)"},
+					"agent":       {Type: "string", Description: "Agent glob the grant applies to (e.g. worker-*). Defaults to the calling agent."},
+					"tools":       {Type: "string", Description: "Tool glob pattern (e.g. filesystem.write_*, gmail.*)"},
+					"duration":    {Type: "string", Description: "Duration (e.g. 30m, 2h, 1h30m)"},
+					"approval_id": {Type: "string", Description: "Optional: the approval this grant answers. Recorded so later calls can be traced back to it."},
+					"trace_id":    {Type: "string", Description: "Optional: the call this grant answers. Becomes the parent of every call the grant authorizes."},
 				},
 				Required: []string{"tools", "duration"},
 			},
@@ -831,9 +834,19 @@ func (s *Server) handleGrantCreate(args map[string]any) (any, *rpcError) {
 	if targetAgent == "" {
 		targetAgent = s.AgentID
 	}
-	g := s.Handler.Grants.Add(targetAgent, tools, "mcp:"+s.AgentID, dur)
+	// Origin is optional: a supervisor that knows which approval it is acting on
+	// records it, and the chain stays walkable. One that does not still gets its
+	// grant — the mesh records justification, it does not demand it.
+	approvalID, _ := args["approval_id"].(string)
+	originTraceID, _ := args["trace_id"].(string)
+
+	g := s.Handler.Grants.AddWithOrigin(targetAgent, tools, "mcp:"+s.AgentID, dur, grant.Origin{
+		ApprovalID: approvalID,
+		TraceID:    originTraceID,
+	})
 	slog.Info("grant created via MCP",
-		"id", g.ID, "agent", g.Agent, "tools", g.Tools, "duration", duration)
+		"id", g.ID, "agent", g.Agent, "tools", g.Tools, "duration", duration,
+		"approval_id", approvalID, "origin_trace", originTraceID)
 	return map[string]any{
 		"content": []map[string]any{
 			{"type": "text", "text": fmt.Sprintf("Grant created: %s\n  agent: %s\n  tools: %s\n  expires: %s\n  remaining: %s",

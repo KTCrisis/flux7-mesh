@@ -10,6 +10,16 @@ import (
 	"github.com/KTCrisis/flux7-mesh/internal/match"
 )
 
+// Origin records what motivated a grant. Both fields are optional: a grant
+// issued out of the blue has none. When they are set, every call the grant
+// later authorizes can be walked back to the decision that created it —
+// without this, a grant is an orphan and "why was this allowed?" stops at
+// "because a grant existed".
+type Origin struct {
+	ApprovalID string `json:"approval_id,omitempty"` // the approval that led to it
+	TraceID    string `json:"trace_id,omitempty"`    // the call that led to it
+}
+
 // Grant is a temporary permission override.
 type Grant struct {
 	ID        string    `json:"id"`
@@ -18,6 +28,7 @@ type Grant struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	GrantedBy string    `json:"granted_by"`
 	CreatedAt time.Time `json:"created_at"`
+	Origin    Origin    `json:"origin,omitzero"`
 }
 
 // IsExpired returns true if the grant has passed its expiration.
@@ -45,8 +56,13 @@ func NewStore() *Store {
 	return &Store{}
 }
 
-// Add creates a new temporal grant.
+// Add creates a new temporal grant with no recorded origin.
 func (s *Store) Add(agent, tools, grantedBy string, duration time.Duration) *Grant {
+	return s.AddWithOrigin(agent, tools, grantedBy, duration, Origin{})
+}
+
+// AddWithOrigin creates a new temporal grant and records what motivated it.
+func (s *Store) AddWithOrigin(agent, tools, grantedBy string, duration time.Duration, origin Origin) *Grant {
 	now := time.Now().UTC()
 	g := &Grant{
 		ID:        newID(),
@@ -55,6 +71,7 @@ func (s *Store) Add(agent, tools, grantedBy string, duration time.Duration) *Gra
 		ExpiresAt: now.Add(duration),
 		GrantedBy: grantedBy,
 		CreatedAt: now,
+		Origin:    origin,
 	}
 	s.mu.Lock()
 	s.grants = append(s.grants, g)

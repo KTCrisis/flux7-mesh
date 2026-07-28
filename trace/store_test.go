@@ -1,6 +1,7 @@
 package trace
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -412,5 +413,78 @@ func TestCloseIdempotent(t *testing.T) {
 	}
 	if err := s.Close(); err != nil {
 		t.Errorf("double Close: %v", err)
+	}
+}
+
+// Chain walks the authority behind a call: the approved call, the grant it
+// produced, and every call that grant later waved through.
+func TestChainWalksParents(t *testing.T) {
+	s := NewStore(100)
+
+	root := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	mid := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	leaf := "cccccccccccccccccccccccccccccccc"
+
+	s.Record(Entry{TraceID: root, AgentID: "claude", Tool: "fs.write", Policy: "human_approval"})
+	s.Record(Entry{TraceID: mid, AgentID: "claude", Tool: "fs.write", Policy: "allow",
+		GrantID: "g1", ParentTraceID: root})
+	s.Record(Entry{TraceID: leaf, AgentID: "claude", Tool: "fs.delete", Policy: "allow",
+		GrantID: "g1", ParentTraceID: mid})
+
+	chain := s.Chain(leaf, 10)
+	if len(chain) != 3 {
+		t.Fatalf("expected a chain of 3, got %d", len(chain))
+	}
+	// Oldest first, requested entry last.
+	if chain[0].TraceID != root || chain[2].TraceID != leaf {
+		t.Errorf("chain out of order: %s ... %s", chain[0].TraceID, chain[2].TraceID)
+	}
+}
+
+// A call nobody had to authorize is a chain of one, not an error.
+func TestChainWithoutParentIsSingleton(t *testing.T) {
+	s := NewStore(100)
+	id := "dddddddddddddddddddddddddddddddd"
+	s.Record(Entry{TraceID: id, AgentID: "claude", Tool: "fs.read", Policy: "allow"})
+
+	chain := s.Chain(id, 10)
+	if len(chain) != 1 {
+		t.Fatalf("expected a chain of 1, got %d", len(chain))
+	}
+}
+
+func TestChainUnknownTraceReturnsNil(t *testing.T) {
+	s := NewStore(100)
+	if chain := s.Chain("nope", 10); chain != nil {
+		t.Errorf("expected nil for an unknown trace, got %d entries", len(chain))
+	}
+}
+
+// depth bounds the walk, so a long chain cannot flood a caller.
+func TestChainRespectsDepth(t *testing.T) {
+	s := NewStore(100)
+	prev := ""
+	last := ""
+	for i := range 6 {
+		id := fmt.Sprintf("%032x", i+1)
+		s.Record(Entry{TraceID: id, AgentID: "claude", Tool: "fs.write", ParentTraceID: prev})
+		prev, last = id, id
+	}
+	if chain := s.Chain(last, 3); len(chain) != 3 {
+		t.Errorf("expected depth to cap the chain at 3, got %d", len(chain))
+	}
+}
+
+// A cycle in the data must not hang the walk.
+func TestChainStopsOnCycle(t *testing.T) {
+	s := NewStore(100)
+	a := "11111111111111111111111111111111"
+	b := "22222222222222222222222222222222"
+	s.Record(Entry{TraceID: a, ParentTraceID: b})
+	s.Record(Entry{TraceID: b, ParentTraceID: a})
+
+	chain := s.Chain(a, 10)
+	if len(chain) != 2 {
+		t.Fatalf("expected the walk to stop at the cycle, got %d entries", len(chain))
 	}
 }

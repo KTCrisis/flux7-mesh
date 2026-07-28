@@ -125,3 +125,67 @@ func TestPersistCheckAfterReload(t *testing.T) {
 		t.Error("grant should not match different agent")
 	}
 }
+
+// A grant's origin must survive a restart: the chain of authority is only
+// useful if it outlives the process that recorded it.
+func TestPersistGrantOriginAndReload(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+
+	db1, _ := storage.Open(dbPath)
+	s1 := NewStore()
+	s1.SetDB(db1)
+
+	origin := Origin{ApprovalID: "appr-42", TraceID: "0123456789abcdef0123456789abcdef"}
+	g := s1.AddWithOrigin("claude", "filesystem.*", "user:marc", 1*time.Hour, origin)
+	db1.Close()
+
+	db2, _ := storage.Open(dbPath)
+	s2 := NewStore()
+	s2.SetDB(db2)
+	defer db2.Close()
+
+	if _, err := s2.LoadAll(); err != nil {
+		t.Fatal(err)
+	}
+
+	list := s2.List()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 active grant, got %d", len(list))
+	}
+	got := list[0]
+	if got.ID != g.ID {
+		t.Errorf("expected ID %s, got %s", g.ID, got.ID)
+	}
+	if got.Origin != origin {
+		t.Errorf("origin lost across restart: want %+v, got %+v", origin, got.Origin)
+	}
+}
+
+// A grant issued without an origin reloads with an empty one, not with junk.
+func TestPersistGrantWithoutOrigin(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "state.db")
+
+	db1, _ := storage.Open(dbPath)
+	s1 := NewStore()
+	s1.SetDB(db1)
+	s1.Add("claude", "filesystem.*", "user:marc", 1*time.Hour)
+	db1.Close()
+
+	db2, _ := storage.Open(dbPath)
+	s2 := NewStore()
+	s2.SetDB(db2)
+	defer db2.Close()
+
+	if _, err := s2.LoadAll(); err != nil {
+		t.Fatal(err)
+	}
+	list := s2.List()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 active grant, got %d", len(list))
+	}
+	if (list[0].Origin != Origin{}) {
+		t.Errorf("expected empty origin, got %+v", list[0].Origin)
+	}
+}
