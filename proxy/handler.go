@@ -326,7 +326,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		}
 
 		callbackURL := r.Header.Get("X-Callback-URL")
-		pending := h.Approvals.Submit(agentID, toolName, decision.Rule, req.Params, callbackURL)
+		pending := h.Approvals.SubmitWithTrace(agentID, toolName, decision.Rule, req.Params, callbackURL, traceID)
 
 		entry := trace.Entry{
 			TraceID:    traceID,
@@ -878,11 +878,15 @@ func (h *Handler) extractAgentID(r *http.Request) (string, error) {
 // --- Approval endpoints ---
 
 type approvalView struct {
-	ID            string         `json:"id"`
-	AgentID       string         `json:"agent_id"`
-	Tool          string         `json:"tool"`
-	Params        map[string]any `json:"params"`
-	PolicyRule    string         `json:"policy_rule"`
+	ID      string         `json:"id"`
+	AgentID string         `json:"agent_id"`
+	Tool    string         `json:"tool"`
+	Params  map[string]any `json:"params"`
+	// TraceID is the call awaiting this decision. An operator extending the
+	// decision into a grant needs it, otherwise the grant has no origin to
+	// record and the chain of authority starts empty.
+	TraceID       string `json:"trace_id,omitempty"`
+	PolicyRule    string `json:"policy_rule"`
 	Status        string         `json:"status"`
 	CreatedAt     time.Time      `json:"created_at"`
 	Remaining     string         `json:"remaining,omitempty"`
@@ -910,6 +914,7 @@ func (h *Handler) toApprovalView(pa *approval.PendingApproval) approvalView {
 		AgentID:       pa.AgentID,
 		Tool:          pa.Tool,
 		Params:        params,
+		TraceID:       pa.TraceID,
 		PolicyRule:    pa.PolicyRule,
 		Status:        string(pa.Status),
 		CreatedAt:     pa.CreatedAt,

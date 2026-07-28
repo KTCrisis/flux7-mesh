@@ -70,12 +70,24 @@ mesh pending
 # Approve (prefix match)
 mesh approve a1b2c3d4
 
+# Approve, and stop being asked about this exact tool for an hour.
+# The grant records this approval as its origin — see "Chain of authority".
+mesh approve a1b2c3d4 --grant 1h
+
+# Same, widening the grant beyond the single tool (deliberate)
+mesh approve a1b2c3d4 --grant 1h --tools "filesystem.write_*"
+
 # Deny
 mesh deny a1b2c3d4
 
-# Watch (live updates)
+# Watch (live updates) — [a]pprove, [g]rant, [d]eny, [s]kip
 mesh watch
 ```
+
+In `watch`, `[g]` approves and opens a grant in one keystroke. Its duration comes
+from `MESH_GRANT_DURATION` (default `1h`), and its pattern is the exact tool
+approved. A failing grant never fails the approval: the call was already let
+through, and losing the shortcut is the lesser harm.
 
 ### Via HTTP API
 
@@ -107,6 +119,39 @@ grant.create {tools: "filesystem.write_*", duration: "30m"}
 ```
 
 For the next 30 minutes, all `filesystem.write_*` calls bypass the approval queue. Traced as `grant:<id>`.
+
+### Chain of authority
+
+A grant issued out of nowhere is an orphan: it authorizes calls without saying
+why it exists, and "why was this allowed?" stops at "because a grant covered it".
+
+So a grant can record its origin — the approval and the call it answers:
+
+```bash
+curl -X POST http://localhost:9090/grants -d '{
+  "agent": "claude", "tools": "filesystem.write_*", "duration": "1h",
+  "approval_id": "<the approval>", "trace_id": "<the call being approved>"
+}'
+```
+
+`mesh approve <id> --grant <duration>` and `[g]` in `watch` fill both fields on
+their own; nobody copies an ID by hand. Every call the grant later waves through
+then carries `grant_id` and `parent_trace_id`, and the chain is walkable:
+
+```bash
+curl "http://localhost:9090/traces/<trace-id>/why"
+```
+
+```
+0. fa12168e  echo7.run  human_approval  rule=demo
+1. 384b0ab7  echo7.run  allow           rule=grant:a9b240ef  grant=a9b240ef
+```
+
+Oldest first. The same edge appears as `parentSpanId` in the OTLP export, so
+Jaeger or Tempo renders the tree directly — see [otel.md](otel.md).
+
+Origin is always optional. A grant issued without one still works and yields a
+chain of one, which is an honest answer rather than a gap.
 
 ### MCP tools
 

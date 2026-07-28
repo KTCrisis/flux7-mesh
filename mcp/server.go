@@ -537,10 +537,12 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 			}, nil
 		}
 
-		pending := s.Approvals.Submit(s.AgentID, toolName, decision.Rule, arguments, "")
+		// The trace ID goes in at creation, not by mutation afterwards: the
+		// approval is persisted inside Submit, so a field set later never
+		// reached SQLite and was lost on restart.
+		pending := s.Approvals.SubmitWithTrace(s.AgentID, toolName, decision.Rule, arguments, "", entry.TraceID)
 		entry.ApprovalID = pending.ID
 		s.Traces.Record(entry)
-		pending.TraceID = entry.TraceID
 
 		shortID := pending.ID[:8]
 

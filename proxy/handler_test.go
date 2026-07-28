@@ -1698,3 +1698,40 @@ func TestTraceWhyUnknownTraceIs404(t *testing.T) {
 		t.Errorf("status = %d, want 404", w.Code)
 	}
 }
+
+// The approval view must expose the call awaiting the decision. Without it an
+// operator extending the decision into a grant has no origin to record, and the
+// whole chain starts empty.
+func TestApprovalViewExposesTraceID(t *testing.T) {
+	handler, _ := approvalHandler(t)
+
+	go func() {
+		req := newLoopbackReq("POST", "/tool/risky_tool", strings.NewReader(`{"params":{}}`))
+		req.Header.Set("Authorization", "Bearer agent:claude")
+		req.Header.Set("X-Trace-ID", "0123456789abcdef0123456789abcdef")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+
+	// Wait for the approval to land.
+	var pending []*approval.PendingApproval
+	for range 100 {
+		pending = handler.Approvals.ListPending()
+		if len(pending) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(pending) == 0 {
+		t.Fatal("no approval was submitted")
+	}
+
+	req := newLoopbackReq("GET", "/approvals/"+pending[0].ID, nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	var view map[string]any
+	json.NewDecoder(w.Body).Decode(&view)
+	if view["trace_id"] != "0123456789abcdef0123456789abcdef" {
+		t.Errorf("trace_id = %v, want the trace of the awaiting call", view["trace_id"])
+	}
+}

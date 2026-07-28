@@ -36,10 +36,10 @@ func main() {
 		cmdShow(os.Args[2])
 	case "approve":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: mesh approve <id>")
+			fmt.Fprintln(os.Stderr, "usage: mesh approve <id> [--grant <duration>] [--tools <glob>]")
 			os.Exit(1)
 		}
-		resolve(os.Args[2], "approve", false)
+		cmdApprove(os.Args[2], os.Args[3:])
 	case "deny":
 		if len(os.Args) < 3 {
 			fmt.Fprintln(os.Stderr, "usage: mesh deny <id>")
@@ -65,8 +65,17 @@ commands:
   deny <id>            Deny a pending request
   watch                Interactive mode — poll and prompt for each approval
 
+approve flags:
+  --grant <duration>   Also open a temporal grant, so the same call does not
+                       ask again (e.g. 30m, 1h). The grant records this
+                       approval as its origin, which is what makes
+                       "mesh why" able to answer later.
+  --tools <glob>       Tool pattern for that grant (default: the exact tool
+                       approved). Widening it is deliberate.
+
 env:
-  MESH_URL             Agent-mesh URL (default http://localhost:9090)`)
+  MESH_URL             Agent-mesh URL (default http://localhost:9090)
+  MESH_GRANT_DURATION  Duration used by [g] in watch (default 1h)`)
 }
 
 type approvalView struct {
@@ -74,6 +83,7 @@ type approvalView struct {
 	AgentID    string         `json:"agent_id"`
 	Tool       string         `json:"tool"`
 	Params     map[string]any `json:"params"`
+	TraceID    string         `json:"trace_id,omitempty"`
 	PolicyRule string         `json:"policy_rule"`
 	Status     string         `json:"status"`
 	CreatedAt  time.Time      `json:"created_at"`
@@ -150,6 +160,145 @@ func cmdShow(id string) {
 	}
 }
 
+// cmdApprove approves a request and, with --grant, extends the decision into a
+// temporal grant carrying this approval as its origin.
+//
+// The approval is fetched BEFORE resolving it: that is the moment its agent,
+// tool and trace ID are certainly readable, and it also turns a prefix into the
+// full ID a grant must record.
+func cmdApprove(id string, flags []string) {
+	duration, tools, err := parseApproveFlags(flags)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	var target *approvalView
+	if duration != "" {
+		target = fetchApproval(id)
+		if target == nil {
+			fmt.Fprintf(os.Stderr, "approval %s not found\n", id)
+			os.Exit(1)
+		}
+	}
+
+	resolve(id, "approve", false)
+
+	if duration == "" {
+		return
+	}
+	if tools == "" {
+		// The exact tool, not a glob. An operator who wants to widen the grant
+		// says so with --tools; nobody widens it by accident.
+		tools = target.Tool
+	}
+	createGrant(target, tools, duration, false)
+}
+
+func parseApproveFlags(flags []string) (duration, tools string, err error) {
+	for i := 0; i < len(flags); i++ {
+		switch flags[i] {
+		case "--grant":
+			if i+1 >= len(flags) {
+				return "", "", fmt.Errorf("--grant needs a duration (e.g. 1h)")
+			}
+			duration = flags[i+1]
+			i++
+		case "--tools":
+			if i+1 >= len(flags) {
+				return "", "", fmt.Errorf("--tools needs a pattern")
+			}
+			tools = flags[i+1]
+			i++
+		default:
+			return "", "", fmt.Errorf("unknown flag: %s", flags[i])
+		}
+	}
+	if tools != "" && duration == "" {
+		return "", "", fmt.Errorf("--tools only makes sense with --grant")
+	}
+	if duration != "" {
+		if _, e := time.ParseDuration(duration); e != nil {
+			return "", "", fmt.Errorf("invalid duration %q: %v", duration, e)
+		}
+	}
+	return duration, tools, nil
+}
+
+func fetchApproval(id string) *approvalView {
+	resp, err := http.Get(meshURL + "/approvals/" + id)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	var a approvalView
+	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
+		return nil
+	}
+	return &a
+}
+
+// createGrant opens a temporal grant that names the approval it came from.
+// A failure here never fails the approval: the call was already let through,
+// and losing the shortcut is a lesser harm than pretending the decision failed.
+func createGrant(a *approvalView, tools, duration string, interactive bool) {
+	body, _ := json.Marshal(map[string]string{
+		"agent":       a.AgentID,
+		"tools":       tools,
+		"duration":    duration,
+		"approval_id": a.ID,
+		"trace_id":    a.TraceID,
+	})
+
+	indent := ""
+	if interactive {
+		indent = "  "
+	}
+
+	resp, err := http.Post(meshURL+"/grants", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%sapproved, but the grant failed: %v\n", indent, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		fmt.Fprintf(os.Stderr, "%sapproved, but the grant failed: status %d\n", indent, resp.StatusCode)
+		return
+	}
+
+	var g struct {
+		ID        string `json:"id"`
+		Remaining string `json:"remaining"`
+	}
+	json.NewDecoder(resp.Body).Decode(&g)
+
+	fmt.Printf("%sGrant %s — %s on %s for %s\n", indent, short(g.ID), a.AgentID, tools, g.Remaining)
+	if a.TraceID == "" {
+		// Say it out loud rather than let the operator believe the chain is
+		// complete. An approval with no trace predates the wiring, or came
+		// through a path that does not carry one.
+		fmt.Printf("%s  (no origin trace on this approval — the chain will stop here)\n", indent)
+	}
+}
+
+func short(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+func grantDuration() string {
+	if d := os.Getenv("MESH_GRANT_DURATION"); d != "" {
+		return d
+	}
+	return "1h"
+}
+
 func cmdWatch() {
 	fmt.Println("mesh watch — waiting for approvals (ctrl+c to quit)")
 	fmt.Println()
@@ -180,7 +329,7 @@ func cmdWatch() {
 
 			// Prompt
 			for {
-				fmt.Printf("  [a]pprove / [d]eny / [s]kip ? ")
+				fmt.Printf("  [a]pprove / [g]rant %s / [d]eny / [s]kip ? ", grantDuration())
 				if !scanner.Scan() {
 					return
 				}
@@ -190,13 +339,22 @@ func cmdWatch() {
 				case "a", "approve":
 					resolve(a.ID[:8], "approve", true)
 					seen[a.ID] = true
+				case "g", "grant":
+					// Approve, then stop being asked about this exact tool for
+					// a while. The grant records this approval as its origin,
+					// so the calls it later waves through stay traceable to
+					// the decision taken here.
+					resolve(a.ID[:8], "approve", true)
+					approved := a
+					createGrant(&approved, a.Tool, grantDuration(), true)
+					seen[a.ID] = true
 				case "d", "deny":
 					resolve(a.ID[:8], "deny", true)
 					seen[a.ID] = true
 				case "s", "skip":
 					seen[a.ID] = true
 				default:
-					fmt.Println("  type a, d, or s")
+					fmt.Println("  type a, g, d, or s")
 					continue
 				}
 				break
