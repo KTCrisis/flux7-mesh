@@ -180,6 +180,15 @@ type Policy struct {
 	Agent     string     `yaml:"agent" json:"agent"`
 	RateLimit *RateLimit `yaml:"rate_limit,omitempty" json:"rate_limit,omitempty"`
 	Rules     []Rule     `yaml:"rules" json:"rules"`
+
+	// SourceFile is the file this policy was read from, relative to policy_dir,
+	// or empty when it was declared inline in the config. Set by the loader,
+	// never by YAML: a policy cannot claim to come from somewhere it does not.
+	//
+	// It exists because a policy's name and its file name are not the same
+	// thing — `claude.local.yaml` declares `name: claude` — and anything that
+	// wants to edit the file has otherwise no way to find it but to guess.
+	SourceFile string `yaml:"-" json:"source_file,omitempty"`
 }
 
 // RateLimit defines per-agent call constraints.
@@ -380,6 +389,7 @@ func (c *Config) loadPolicyDir(configPath string) error {
 		if p.Name == "" {
 			return fmt.Errorf("policy file %s: missing required field 'name'", e.Name())
 		}
+		p.SourceFile = e.Name()
 
 		c.Policies = append(c.Policies, p)
 	}

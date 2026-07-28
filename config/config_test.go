@@ -113,7 +113,7 @@ policies:
       - tools: ["create_refund"]
         action: allow
         condition:
-          field: "params.amount"
+          field: "amount"
           operator: "<"
           value: 500
 `
@@ -126,7 +126,7 @@ policies:
 	if rule.Condition == nil {
 		t.Fatal("condition is nil")
 	}
-	if rule.Condition.Field != "params.amount" {
+	if rule.Condition.Field != "amount" {
 		t.Errorf("field = %q", rule.Condition.Field)
 	}
 	if rule.Condition.Operator != "<" {
@@ -632,5 +632,70 @@ func TestLoadApprovalChannelInvalid(t *testing.T) {
 	f := writeTempFile(t, "approval:\n  channel: webhook\npolicies: []\n")
 	if _, err := Load(f); err == nil {
 		t.Fatal("expected error for unknown approval.channel")
+	}
+}
+
+// A policy's name and its file name are different things: claude.local.yaml
+// declares `name: claude`. Anything that wants to edit the file needs to be
+// told which one it is rather than guessing from the name.
+func TestPolicyDirRecordsSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	polDir := filepath.Join(dir, "policies")
+	if err := os.MkdirAll(polDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(polDir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("claude.local.yaml", "name: claude\nagent: claude\nrules:\n  - tools: [\"*\"]\n    action: allow\n")
+	write("default.yaml", "name: default\nagent: \"*\"\nrules:\n  - tools: [\"*\"]\n    action: deny\n")
+
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("port: 9090\npolicy_dir: ./policies\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{"claude": "claude.local.yaml", "default": "default.yaml"}
+	seen := 0
+	for _, p := range cfg.Policies {
+		if w, ok := want[p.Name]; ok {
+			seen++
+			if p.SourceFile != w {
+				t.Errorf("policy %q source_file = %q, want %q", p.Name, p.SourceFile, w)
+			}
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("loaded %d of %d policies", seen, len(want))
+	}
+}
+
+// SourceFile is set by the loader, never by YAML: a policy must not be able to
+// claim it came from a file it did not.
+func TestPolicyCannotDeclareItsOwnSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	polDir := filepath.Join(dir, "policies")
+	os.MkdirAll(polDir, 0o755)
+	os.WriteFile(filepath.Join(polDir, "real.yaml"),
+		[]byte("name: x\nagent: x\nsource_file: ../../etc/passwd\nrules: []\n"), 0o644)
+
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte("port: 9090\npolicy_dir: ./policies\n"), 0o644)
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range cfg.Policies {
+		if p.Name == "x" && p.SourceFile != "real.yaml" {
+			t.Errorf("source_file = %q, want real.yaml — YAML must not set it", p.SourceFile)
+		}
 	}
 }
