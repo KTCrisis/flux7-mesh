@@ -343,12 +343,25 @@ policies:
       - tools: ["create_refund"]
         action: allow
         condition:
-          field: "params.amount"
+          field: "amount"        # the path starts at the tool's arguments
           operator: "<"
           value: 500
+      # Conditions read strings too, so a rule can look inside the call
+      # rather than only at its name. A list means "any of these".
+      - tools: ["Bash"]
+        action: deny
+        condition:
+          field: "command"
+          operator: "contains"
+          value: ["mkfs", "> /dev/sd", "/etc/sudoers"]
       - tools: ["*"]
         action: deny
 ```
+
+Operators: `<` `<=` `>` `>=` `==` `!=` on numbers, `==` `!=` `contains`
+`not_contains` `starts_with` `not_starts_with` on strings. String matching is
+literal and case-sensitive: it raises the floor against accidents, it is not a
+sandbox. See [writing-policies.md](docs/writing-policies.md).
 
 | Action | Behavior |
 |--------|----------|

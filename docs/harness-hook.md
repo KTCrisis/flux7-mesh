@@ -105,6 +105,41 @@ rules:
 
 Then set `MESH7_HOOK_MODE=enforce`.
 
+**Naming a tool `allow` decides nothing on its own.** What enforces is the floor
+underneath: anything the policy does not name falls through to the default deny.
+That catches a tool arriving in the harness that nobody has looked at yet. It
+does not catch a dangerous *use* of a tool you did name.
+
+For that, conditions read the arguments:
+
+```yaml
+  # The guard goes ABOVE the permissive rule — first match wins.
+  - tools: ["Bash"]
+    action: deny
+    condition:
+      field: "command"
+      operator: "contains"
+      value: ["mkfs", "> /dev/sd", "/etc/sudoers", ":(){"]
+
+  - tools: ["Bash"]
+    action: allow
+
+  - tools: ["Write", "Edit"]
+    action: deny
+    condition:
+      field: "file_path"
+      operator: "starts_with"
+      value: ["/etc", "/usr", "/boot"]
+
+  - tools: ["Write", "Edit"]
+    action: allow
+```
+
+Choose the needles by target, not by verb. `rm -rf /` as a needle also matches
+`rm -rf /tmp/scratch`, and `| sh` also matches `| sha256sum`; a guard that blocks
+ordinary work gets removed within a week. See
+[writing-policies.md](writing-policies.md) for what string matching does not do.
+
 ## Verdicts
 
 | mesh7 action | Hook output | Effect |
