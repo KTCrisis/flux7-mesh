@@ -32,14 +32,14 @@ func (d *doneChan) Chan() <-chan struct{} {
 // MCPClient manages a connection to a single upstream MCP server.
 type MCPClient struct {
 	Name      string
-	Transport string // "stdio" or "sse"
-	Command   string // stdio: command (e.g. "npx", "/usr/bin/python")
+	Transport string   // "stdio", "sse" or "streamable-http"
+	Command   string   // stdio: command (e.g. "npx", "/usr/bin/python")
 	Args      []string // stdio: args
-	URL       string // sse: endpoint URL
+	URL       string   // sse / streamable-http: endpoint URL
 
 	// transport layer
-	tr        transport
-	newTr     func() transport // factory to create a fresh transport for reconnection
+	tr    transport
+	newTr func() transport // factory to create a fresh transport for reconnection
 
 	// state
 	stateMu   sync.Mutex
@@ -75,6 +75,24 @@ func NewSSEClient(name, sseURL string, headers map[string]string) *MCPClient {
 		Name:      name,
 		Transport: "sse",
 		URL:       sseURL,
+		tr:        factory(),
+		newTr:     factory,
+		pending:   make(map[int64]chan rpcResponse),
+		status:    "connecting",
+		done:      newDoneChan(),
+	}
+}
+
+// NewStreamableHTTPClient creates an MCP client that speaks the Streamable
+// HTTP transport, the one hosted MCP servers now default to. Unlike SSE it
+// holds no long-lived stream: each request is a POST whose response carries
+// the answer.
+func NewStreamableHTTPClient(name, endpoint string, headers map[string]string) *MCPClient {
+	factory := func() transport { return newStreamableTransport(name, endpoint, headers) }
+	return &MCPClient{
+		Name:      name,
+		Transport: "streamable-http",
+		URL:       endpoint,
 		tr:        factory(),
 		newTr:     factory,
 		pending:   make(map[int64]chan rpcResponse),

@@ -167,7 +167,7 @@ type ApprovalConfig struct {
 // MCPServerConfig declares an upstream MCP server to connect to.
 type MCPServerConfig struct {
 	Name      string            `yaml:"name"`
-	Transport string            `yaml:"transport"` // "stdio" or "sse"
+	Transport string            `yaml:"transport"` // "stdio", "sse" or "streamable-http"
 	Command   string            `yaml:"command,omitempty"`
 	Args      []string          `yaml:"args,omitempty"`
 	Env       map[string]string `yaml:"env,omitempty"`

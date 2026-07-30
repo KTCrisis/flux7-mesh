@@ -61,7 +61,7 @@ flowchart LR
     end
 
     subgraph Upstream["Upstream tools"]
-        U1["MCP servers<br/>(stdio + SSE)"]
+        U1["MCP servers<br/>(stdio + SSE + streamable HTTP)"]
         U2["REST APIs<br/>(OpenAPI specs)"]
         U3["CLI binaries<br/>(terraform, gh, docker)"]
     end
@@ -86,7 +86,7 @@ flowchart LR
     OTEL --> O2
 ```
 
-**Import:** OpenAPI specs (URL or file) · MCP servers (stdio + SSE) · CLI binaries
+**Import:** OpenAPI specs (URL or file) · MCP servers (stdio + SSE + streamable HTTP) · CLI binaries
 **Export:** MCP server (stdio) · MCP Streamable HTTP (`POST /mcp`) · HTTP proxy (`:port`) · OTLP traces
 
 ## The problem
@@ -273,7 +273,17 @@ mcp_servers:
     url: "https://mcp-server.example.com/sse"
     headers:
       Authorization: "Bearer <token>"
+
+  - name: huggingface
+    transport: streamable-http
+    url: "https://huggingface.co/mcp"
 ```
+
+`streamable-http` is the transport hosted MCP servers now default to. It holds
+no long-lived stream: each JSON-RPC request is a POST whose response carries
+the answer, either as JSON or as an event stream. Sessions (`Mcp-Session-Id`)
+are handled transparently, and cross-origin redirects are refused so a
+compromised upstream cannot relay your tool calls elsewhere.
 
 ### OpenAPI specs
 
@@ -673,7 +683,7 @@ go test ./... -race        # with race detector
 
 ## Roadmap
 
-- [x] Import OpenAPI (URL + file), MCP (stdio + SSE), CLI binaries
+- [x] Import OpenAPI (URL + file), MCP (stdio + SSE + streamable HTTP), CLI binaries
 - [x] Policy engine with glob patterns + conditions
 - [x] Human approval (non-blocking, virtual MCP tools, CLI, HTTP)
 - [x] Temporal grants (sudo for agents)

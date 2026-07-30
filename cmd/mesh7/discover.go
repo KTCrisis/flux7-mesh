@@ -71,6 +71,9 @@ func runDiscover(args []string) {
 				case "sse":
 					fmt.Fprintf(os.Stderr, "Connecting to MCP server: %s (%s)\n", serverCfg.Name, serverCfg.URL)
 					client = mcp.NewSSEClient(serverCfg.Name, serverCfg.URL, serverCfg.Headers)
+				case "streamable-http":
+					fmt.Fprintf(os.Stderr, "Connecting to MCP server: %s (%s)\n", serverCfg.Name, serverCfg.URL)
+					client = mcp.NewStreamableHTTPClient(serverCfg.Name, serverCfg.URL, serverCfg.Headers)
 				default:
 					fmt.Fprintf(os.Stderr, "Skipping %s (unsupported transport: %s)\n", serverCfg.Name, serverCfg.Transport)
 					continue

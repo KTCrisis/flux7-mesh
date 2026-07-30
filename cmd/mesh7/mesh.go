@@ -239,6 +239,8 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 					client = mcp.NewStdioClient(sc.Name, sc.Command, sc.Args, sc.Env)
 				case "sse":
 					client = mcp.NewSSEClient(sc.Name, sc.URL, sc.Headers)
+				case "streamable-http":
+					client = mcp.NewStreamableHTTPClient(sc.Name, sc.URL, sc.Headers)
 				default:
 					slog.Error("unsupported MCP transport", "name", sc.Name, "transport", sc.Transport)
 					return
