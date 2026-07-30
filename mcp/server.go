@@ -24,10 +24,15 @@ import (
 // JSON-RPC 2.0 types
 
 type rpcRequest struct {
-	JSONRPC string         `json:"jsonrpc"`
-	ID      any            `json:"id"`
-	Method  string         `json:"method"`
-	Params  map[string]any `json:"params,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	// omitempty matters on the client side: JSON-RPC defines a notification as
+	// an object with NO id member, so emitting "id": null turns it into a
+	// request with a null identifier. Lenient servers let it pass; strict ones
+	// (the official TypeScript SDK, hence huggingface.co/mcp) answer -32600.
+	// Safe because outgoing ids start at 1 — a 0 id would be dropped here.
+	ID     any            `json:"id,omitempty"`
+	Method string         `json:"method"`
+	Params map[string]any `json:"params,omitempty"`
 }
 
 type rpcResponse struct {
@@ -983,7 +988,7 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 			switch client.Transport {
 			case "stdio":
 				g.Runtime = client.Command + " " + strings.Join(client.Args, " ")
-			case "sse":
+			case "sse", "streamable-http":
 				g.Runtime = client.URL
 			}
 		}

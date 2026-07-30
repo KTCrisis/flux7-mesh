@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,5 +132,31 @@ func TestToInt64(t *testing.T) {
 		if ok != tt.ok || got != tt.want {
 			t.Errorf("toInt64(%v) = (%d, %v), want (%d, %v)", tt.input, got, ok, tt.want, tt.ok)
 		}
+	}
+}
+
+// A JSON-RPC notification must carry no "id" member at all. Emitting
+// "id": null makes it a request with a null identifier, which strict servers
+// reject with -32600 — huggingface.co/mcp does exactly that, and it cost us
+// an initialize handshake before the tag gained omitempty.
+func TestNotificationCarriesNoID(t *testing.T) {
+	data, err := json.Marshal(rpcRequest{
+		JSONRPC: "2.0",
+		Method:  "notifications/initialized",
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), `"id"`) {
+		t.Errorf("notification must not carry an id member, got: %s", data)
+	}
+
+	// A real request must still carry its id.
+	data, err = json.Marshal(rpcRequest{JSONRPC: "2.0", ID: int64(1), Method: "tools/list"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"id":1`) {
+		t.Errorf("request lost its id, got: %s", data)
 	}
 }
