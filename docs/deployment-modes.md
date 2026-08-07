@@ -8,15 +8,17 @@ flux7-mesh supports different configurations depending on who connects and how.
 |---|-------|-----------|-------------------|------------|--------|
 | **1** | Solo dev + Claude/Cursor | MCP stdio | Claude spawns it | None | Works |
 | **2** | Solo dev + Claude + supervisor | MCP stdio + HTTP | Claude spawns it | Passive (poll :9090) | Works while Claude runs |
-| **3** | Supervisor standalone (no Claude) | HTTP | Supervisor spawns it | Active | Works |
+| **3** | Supervisor standalone (no Claude) | HTTP | `mesh7 serve` / systemd | Active | Works |
 | **4** | External agent (LangChain, script) | HTTP | Manual or supervisor | Optional | Works |
 | **5** | Claude + external agent | MCP stdio + HTTP | Claude spawns it | Optional | Works |
-| **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | Needs `mesh7 serve` |
+| **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | Obsolete (sup7 never spawns) |
 | **7** | 2 Claude sessions | MCP stdio × 2 | First spawns, second proxies | - | Works (v0.9.3+) |
 | **8** | Managed Agents (cloud) | MCP Streamable HTTP | Manual / deploy | Optional | Works |
 | **9** | Agent SDK + hooks | HTTP `/decide` | Manual (`mesh7 serve`) | None | Works |
 
-Configs 1–5 and 8–9 work out of the box. Config 7 resolves itself through the `--mcp` auto-proxy (v0.9.3+). Config 6 needs daemon mode (`mesh7 serve`), because there the conflict is over who owns the process lifecycle, not just the port.
+Configs 1–5 and 8–9 work out of the box. Config 7 resolves itself through the `--mcp` auto-proxy (v0.9.3+). Config 6 is obsolete: sup7 no longer spawns anything, so the conflict it described cannot occur.
+
+For anything beyond one developer at one terminal, run `mesh7 serve` under systemd. Every config below then collapses into the same shape: one owner for the mesh, clients that attach.
 
 ---
 
@@ -63,61 +65,58 @@ The built-in auto-approve (Level 1) fires before the approval queue — routine 
 claude
 
 # Terminal 2: Supervisor (flux7-supervisor / sup7)
-cd ~/flux7-supervisor
-python -m sup7 --config supervisor.local.yaml
+sup7 -c sup7.yaml start
 ```
 
 With `supervisor.enabled: true` in the flux7-mesh config, `approval.resolve` and `approval.pending` tools are hidden from Claude. Tool calls block until the supervisor resolves them.
 
-**Supervisor config:**
+**Supervisor config (`sup7.yaml`):**
 
 ```yaml
-supervisor:
-  mesh_url: http://localhost:9090
-  mesh_process:
-    enabled: false    # Claude manages the lifecycle
-  ollama:
-    enabled: true
-    model: qwen3:14b
-  rules:
-    - name: project-scope
-      condition: "params.path starts_with /home/user"
-      action: approve
-      confidence: 0.95
+mesh:
+  url: http://localhost:9090
+  agent_id: supervisor
+
+evaluator:
+  provider: ollama          # ollama | anthropic | claude-code
+  model: qwen3:14b
+  url: http://localhost:11434
+  confidence_threshold: 0.8
+
+rules:
+  - name: project-writes
+    condition: "params.path starts_with project_dir"
+    action: approve
+    confidence: 0.9
 ```
+
+sup7 never starts flux7-mesh. It attaches to one that is already listening, so the mesh's lifecycle is always someone else's: Claude here, systemd or `mesh7 serve` elsewhere.
 
 **Limitation:** When Claude quits, flux7-mesh dies. The supervisor retries every `poll_interval` until Claude starts again.
 
 ## Config 3: Supervisor standalone (no Claude)
 
-For pipelines, overnight runs, CI/CD, batch jobs. No human in the loop — the supervisor manages everything.
+For pipelines, overnight runs, CI/CD, batch jobs. No human at the keyboard: the supervisor resolves what it can and only genuine unknowns wait.
 
 ```
-supervisor (always alive)
-  │
-  ├── spawn/restart ──> flux7-mesh :9090 ──> tools
-  │
-  ├── poll → evaluate → resolve
-  └── store decisions in memory-mcp
+mesh7 serve (daemon, systemd)  ──> tools
+        ▲
+        │ poll → evaluate → resolve
+        │
+   sup7 (always alive) ──> decisions stored in mem7
 ```
 
 **Setup:**
 
 ```bash
-cd ~/flux7-supervisor
-python -m sup7 --config supervisor.yaml
+# The mesh must already be listening. sup7 does not start it.
+mesh7 serve --config config.yaml     # or: systemctl start mesh7
+
+sup7 -c sup7.yaml status             # check connectivity first
+sup7 -c sup7.yaml start
 ```
 
-With `mesh_process.enabled: true`, the supervisor spawns flux7-mesh on startup, monitors health, and restarts it on crash.
-
-```yaml
-supervisor:
-  mesh_url: http://localhost:9090
-  mesh_process:
-    enabled: true
-    command: mesh7
-    config: /path/to/config.yaml
-```
+Both ship a systemd unit, and sup7's declares `After=` and `Wants=mesh7.service` so the ordering is enforced by the init system rather than by whoever types the commands.
 
 External agents connect via HTTP:
 
@@ -254,20 +253,15 @@ See `examples/agent-sdk-hooks/` and `sdk/python/README.md`.
 
 ---
 
-## Configs that need daemon mode
+## Contention over who owns the mesh
 
-### Config 6: Claude + supervisor (active spawn)
+### Config 6: Claude + supervisor (active spawn) — no longer possible
 
-Both Claude and the supervisor try to spawn flux7-mesh on port `:9090`.
+This described both Claude and the supervisor spawning flux7-mesh on `:9090`, the second losing the bind, and the supervisor's restart loop turning that into an infinite crash loop.
 
-```
-Claude ──stdio──> flux7-mesh :9090     ← process A
-supervisor ──spawn──> flux7-mesh :9090 ← process B  💥 bind: address already in use
-```
+It cannot happen any more. sup7 has no process-spawning capability at all: it attaches to a mesh that is already listening and gives up if none is. There is no `mesh_process` setting to disable, because there is nothing left to disable. Documented here only because older notes still reference the workaround.
 
-The second instance crashes with exit code 1. The supervisor restart loop detects the crash and spawns again, which is an infinite crash loop.
-
-**Fix:** run `mesh7 serve` as the daemon and set `mesh_process.enabled: false` in the supervisor config, so neither Claude nor the supervisor owns the lifecycle. Claude's `--mcp` auto-proxies to the daemon and the supervisor polls it. Without a daemon, `mesh_process.enabled: false` alone still works (→ Config 2), at the cost of the mesh dying with Claude.
+The general rule survives the scenario that produced it: **give the mesh an owner that is neither of its clients.** `mesh7 serve` under systemd, with Claude auto-proxying and sup7 polling.
 
 ### Config 7: Two Claude sessions
 
@@ -321,7 +315,7 @@ Do you use Claude/Cursor?
 | Component | Who starts it | Who stops it | Persists across sessions |
 |-----------|--------------|-------------|------------------------|
 | **Ollama** | System daemon | System | Yes |
-| **mesh7** | Claude (config 1/2/5), supervisor (config 3), or `mesh7 serve` (daemon) | Dies with parent (embedded) or persistent (daemon) | Yes with daemon mode |
+| **mesh7** | Claude (config 1/2/5) or `mesh7 serve` (config 3, daemon) | Dies with parent (embedded) or persistent (daemon) | Yes with daemon mode |
 | **Upstream MCP servers** | flux7-mesh (subprocesses) | Die with flux7-mesh | No |
 | **Supervisor** | User (terminal) | User (Ctrl+C) | Yes (as long as terminal lives) |
 | **Claude Code** | User | User | No |
@@ -346,13 +340,13 @@ Two subcommands:
 - **`mesh7 serve`** — run as a persistent daemon (HTTP + manages upstream MCP servers)
 - **`mesh7 --mcp`** — auto-detects a running daemon and proxies to it (MCP stdio for Claude Code)
 
-This solves Config 6 (competing spawns) and Config 2's limitation (the mesh dies with Claude), and it makes Config 7 durable rather than merely working. Every client uses the auto-proxy instead of spawning its own mesh7, and the daemon outlives all of them.
+This settles Config 2's limitation (the mesh dies with Claude) and makes Config 7 durable rather than merely working. Every client uses the auto-proxy instead of spawning its own mesh7, and the daemon outlives all of them.
 
 | Feature | Status |
 |---------|--------|
 | Config 1: Embedded MCP | Done |
 | Config 2: Passive supervisor | Done |
-| Config 3: Active supervisor | Done |
+| Config 3: Supervisor standalone | Done |
 | Config 4: Standalone HTTP | Done |
 | Config 5: Shared mesh | Done |
 | Config 8: Managed Agents (MCP Streamable HTTP) | Done (v0.9.0) |
