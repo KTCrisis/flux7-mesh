@@ -11,12 +11,12 @@ flux7-mesh supports different configurations depending on who connects and how.
 | **3** | Supervisor standalone (no Claude) | HTTP | Supervisor spawns it | Active | Works |
 | **4** | External agent (LangChain, script) | HTTP | Manual or supervisor | Optional | Works |
 | **5** | Claude + external agent | MCP stdio + HTTP | Claude spawns it | Optional | Works |
-| **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | **Port conflict** |
-| **7** | 2 Claude sessions | MCP stdio × 2 | Both spawn | - | **Port conflict** |
+| **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | Needs `mesh7 serve` |
+| **7** | 2 Claude sessions | MCP stdio × 2 | First spawns, second proxies | - | Works (v0.9.4+) |
 | **8** | Managed Agents (cloud) | MCP Streamable HTTP | Manual / deploy | Optional | Works |
 | **9** | Agent SDK + hooks | HTTP `/decide` | Manual (`mesh7 serve`) | None | Works |
 
-Configs 1–5 work out of the box. Configs 6–7 have a port conflict — use daemon mode (`mesh7 serve`) to solve them.
+Configs 1–5 and 8–9 work out of the box. Config 7 resolves itself through the `--mcp` auto-proxy (v0.9.4+). Config 6 needs daemon mode (`mesh7 serve`), because there the conflict is over who owns the process lifecycle, not just the port.
 
 ---
 
@@ -254,7 +254,7 @@ See `examples/agent-sdk-hooks/` and `sdk/python/README.md`.
 
 ---
 
-## Configs that don't work
+## Configs that need daemon mode
 
 ### Config 6: Claude + supervisor (active spawn)
 
@@ -265,27 +265,33 @@ Claude ──stdio──> flux7-mesh :9090     ← process A
 supervisor ──spawn──> flux7-mesh :9090 ← process B  💥 bind: address already in use
 ```
 
-The second instance crashes with exit code 1. The supervisor restart loop detects the crash and spawns again — infinite crash loop.
+The second instance crashes with exit code 1. The supervisor restart loop detects the crash and spawns again, which is an infinite crash loop.
 
-**Fix:** Set `mesh_process.enabled: false` in the supervisor config (→ Config 2).
+**Fix:** run `mesh7 serve` as the daemon and set `mesh_process.enabled: false` in the supervisor config, so neither Claude nor the supervisor owns the lifecycle. Claude's `--mcp` auto-proxies to the daemon and the supervisor polls it. Without a daemon, `mesh_process.enabled: false` alone still works (→ Config 2), at the cost of the mesh dying with Claude.
 
 ### Config 7: Two Claude sessions
 
-Two Claude Code sessions with the same MCP config both spawn flux7-mesh.
+Historically, two Claude Code sessions sharing an MCP config both spawned flux7-mesh, the second instance silently lost the bind on `:9090`, and traces and approvals ended up split across two isolated processes.
+
+Since v0.9.4 this resolves itself. `mesh7 --mcp` probes `GET /health` on the configured port before initialising anything. If something answers, the process becomes a stdio-to-HTTP shuttle to that instance instead of standing up a second mesh.
 
 ```
-Claude session 1 ──stdio──> flux7-mesh :9090  ← process A
-Claude session 2 ──stdio──> flux7-mesh :9090  ← process B  💥 conflict
+Claude session 1 ──stdio──> flux7-mesh :9090  ← owns the mesh
+Claude session 2 ──stdio──> shuttle ──POST /mcp──> :9090  ← same instance
 ```
 
-The second instance's HTTP background server fails silently (MCP stdio still works, but `:9090` is taken). Traces and approvals are split across two isolated instances.
+Note that this works even with no `mesh7 serve` daemon: an embedded MCP-mode instance wires the Streamable HTTP handler too, so session 1's mesh already serves `POST /mcp` for session 2 to attach to. One registry, one trace store, one approval queue.
 
-**Fix:** Use different configs with different ports, or run only one Claude session with flux7-mesh.
+Two things to know:
+
+- **Lifetime still belongs to session 1.** Quit it and session 2's shuttle reports `proxy: daemon unreachable`. Run `mesh7 serve` when you want the mesh to outlive every client.
+- **Both sessions default to the same identity.** `--mcp-agent` defaults to `claude`, so unless you give each session a distinct value, policies and traces cannot tell them apart.
 
 **Detection:**
 
 ```bash
-lsof -i :9090
+lsof -i :9090     # who owns the port
+curl -s localhost:9090/health | jq .tools
 ```
 
 ---
@@ -340,7 +346,7 @@ Two subcommands:
 - **`mesh7 serve`** — run as a persistent daemon (HTTP + manages upstream MCP servers)
 - **`mesh7 --mcp`** — auto-detects a running daemon and proxies to it (MCP stdio for Claude Code)
 
-This solves both Config 6 (port conflict) and Config 2's limitation (mesh dies with Claude). Claude uses the auto-proxy instead of spawning the full mesh7. The supervisor manages the daemon lifecycle.
+This solves Config 6 (competing spawns) and Config 2's limitation (the mesh dies with Claude), and it makes Config 7 durable rather than merely working. Every client uses the auto-proxy instead of spawning its own mesh7, and the daemon outlives all of them.
 
 | Feature | Status |
 |---------|--------|
