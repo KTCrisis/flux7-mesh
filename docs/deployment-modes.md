@@ -12,11 +12,11 @@ flux7-mesh supports different configurations depending on who connects and how.
 | **4** | External agent (LangChain, script) | HTTP | Manual or supervisor | Optional | Works |
 | **5** | Claude + external agent | MCP stdio + HTTP | Claude spawns it | Optional | Works |
 | **6** | Claude + supervisor (active spawn) | MCP stdio + HTTP | Both try to spawn | Active | Needs `mesh7 serve` |
-| **7** | 2 Claude sessions | MCP stdio × 2 | First spawns, second proxies | - | Works (v0.9.4+) |
+| **7** | 2 Claude sessions | MCP stdio × 2 | First spawns, second proxies | - | Works (v0.9.3+) |
 | **8** | Managed Agents (cloud) | MCP Streamable HTTP | Manual / deploy | Optional | Works |
 | **9** | Agent SDK + hooks | HTTP `/decide` | Manual (`mesh7 serve`) | None | Works |
 
-Configs 1–5 and 8–9 work out of the box. Config 7 resolves itself through the `--mcp` auto-proxy (v0.9.4+). Config 6 needs daemon mode (`mesh7 serve`), because there the conflict is over who owns the process lifecycle, not just the port.
+Configs 1–5 and 8–9 work out of the box. Config 7 resolves itself through the `--mcp` auto-proxy (v0.9.3+). Config 6 needs daemon mode (`mesh7 serve`), because there the conflict is over who owns the process lifecycle, not just the port.
 
 ---
 
@@ -273,7 +273,7 @@ The second instance crashes with exit code 1. The supervisor restart loop detect
 
 Historically, two Claude Code sessions sharing an MCP config both spawned flux7-mesh, the second instance silently lost the bind on `:9090`, and traces and approvals ended up split across two isolated processes.
 
-Since v0.9.4 this resolves itself. `mesh7 --mcp` probes `GET /health` on the configured port before initialising anything. If something answers, the process becomes a stdio-to-HTTP shuttle to that instance instead of standing up a second mesh.
+Since v0.9.3 this resolves itself. `mesh7 --mcp` probes `GET /health` on the configured port before initialising anything. If something answers, the process becomes a stdio-to-HTTP shuttle to that instance instead of standing up a second mesh.
 
 ```
 Claude session 1 ──stdio──> flux7-mesh :9090  ← owns the mesh
@@ -358,4 +358,4 @@ This solves Config 6 (competing spawns) and Config 2's limitation (the mesh dies
 | Config 8: Managed Agents (MCP Streamable HTTP) | Done (v0.9.0) |
 | `supervisor.enabled` (hide approval tools) | Done |
 | `mesh7 serve` (daemon) | Done (v0.9.4) |
-| `mesh7 --mcp` (auto-proxy to daemon) | Done (v0.9.4) |
+| `mesh7 --mcp` (auto-proxy to daemon) | Done (v0.9.3) |
