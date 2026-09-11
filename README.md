@@ -95,13 +95,13 @@ When you connect tools directly to an AI agent, the agent gets unguarded access 
 
 ## The solution
 
-Put Agent Mesh between the agent and its tools:
+Put flux7-mesh between the agent and its tools:
 
 ```bash
 claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
-The agent sees a normal tool surface. Agent Mesh enforces policy and records traces on every call.
+The agent sees a normal tool surface. flux7-mesh enforces policy and records traces on every call.
 
 ## Install
 
@@ -251,7 +251,7 @@ claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 
 ### 3. Use normally
 
-Restart Claude Code. The agent sees the tools. Agent Mesh enforces the rules. Every call is traced.
+Restart Claude Code. The agent sees the tools. flux7-mesh enforces the rules. Every call is traced.
 
 ---
 
@@ -684,33 +684,33 @@ go test ./... -race        # with race detector
 
 ## Roadmap
 
-- [x] Import OpenAPI (URL + file), MCP (stdio + SSE + streamable HTTP), CLI binaries
-- [x] Policy engine with glob patterns + conditions
-- [x] Human approval (non-blocking, virtual MCP tools, CLI, HTTP)
-- [x] Temporal grants (sudo for agents)
-- [x] Rate limiting + loop detection
-- [x] Trace store + JSONL + OTEL export
-- [x] Per-agent policy files + specificity sort
-- [x] Session tracking
-- [x] Supervisor protocol (content isolation, injection detection)
-- [x] CLI tool governance (3 modes, secure exec)
-- [x] OpenAPI config field (persistent import)
-- [x] Dashboard UI (via [flux7-console](https://github.com/KTCrisis/flux7-console))
-- [x] Decision persistence (approval decisions written to [mem7](https://github.com/KTCrisis/flux7-memory) as queryable facts)
-- [x] Auto-approve from mem7 (built-in Level 1 supervisor — queries past decisions, auto-approves routine patterns)
-- [x] MCP Streamable HTTP transport (`POST /mcp` — connects Anthropic Managed Agents, any remote MCP client)
-- [x] Durable state (approvals, grants persisted in SQLite — survives restarts)
-- [x] Auto-proxy (in `--mcp` mode, detects running daemon on configured port — becomes thin stdio→HTTP proxy, zero config change)
-- [x] `mesh7 serve` daemon mode (persistent, multi-client, auto-proxy connects seamlessly)
-- [x] Python SDK (`pip install flux7-mesh` — GovernedToolkit for Claude API tool_use, MeshHooks for Agent SDK, direct HTTP client)
-- [ ] Operator auth (separate identity from agent Bearer)
-- [ ] Session log durable + `wake(sessionId)` recovery
-- [x] Policy hot-reload (fsnotify, debounce 200ms, config + policy_dir)
-- [ ] Condition engine v2 (AND/OR/nested)
+### Next
 
-## Why "Agent Mesh"
+Where the product is going, in the order it will land.
 
-The same way Envoy sits between microservices and adds observability, auth, and rate limiting without changing service code — Agent Mesh sits between AI agents and their tools.
+1. **Policy on the delegation, not only the agent.** A validated token can now carry the human an agent acts for (`auth.jwt.user_claim`, recorded on every trace as `user_id`). The next step is rules that decide on the *pair*: this agent, for this user, may call this tool. Gateways decide who may reach a door; this decides what a given actor may do once inside.
+2. **Condition engine v2** — AND/OR/nested conditions, and claim-based conditions (role, scope from the token) in YAML rules. The substrate for the item above.
+3. **Semantic policy on content.** Rules that act on what a call carries, not only on the tool's name: "this argument contains an IBAN", "this result contains an injected instruction". A small local classifier annotates the request; the existing condition engine decides. Tool *results* first — indirect injection is the agentic risk nobody upstream can see.
+4. Operator auth (an identity distinct from the agent Bearer) and a durable session log with `wake(sessionId)` recovery.
+
+### Shipped
+
+- Import: OpenAPI (URL + file), MCP (stdio + SSE + streamable HTTP), CLI binaries; persistent `openapi:` config field
+- Export: MCP server (stdio), MCP Streamable HTTP (`POST /mcp` — Anthropic Managed Agents, any remote MCP client), HTTP proxy, OTLP traces
+- Policy engine: glob patterns, conditions on arguments, per-agent policy files, specificity sort, hot-reload
+- Human approval (non-blocking, virtual MCP tools, CLI, HTTP) and temporal grants (sudo for agents)
+- Rate limiting and loop detection
+- Trace store with JSONL persistence, sessions, grant lineage, OTEL export
+- Supervisor protocol: content isolation, injection detection
+- CLI tool governance (3 modes, secure exec)
+- JWT identity against an external IdP; session bound to the caller's identity on every request
+- Durable state (approvals, grants in SQLite); `mesh7 serve` daemon with auto-proxy
+- Decision persistence and auto-approve via [mem7](https://github.com/KTCrisis/flux7-memory); dashboard via [flux7-console](https://github.com/KTCrisis/flux7-console)
+- Python SDK (`pip install flux7-mesh`): GovernedToolkit, MeshHooks, harness hook
+
+## Why a mesh
+
+The same way Envoy sits between microservices and adds observability, auth, and rate limiting without changing service code — flux7-mesh sits between AI agents and their tools.
 
 Agents don't know the proxy exists. They call tools, get results. The governance layer is invisible to the agent, visible to the operator.
 
