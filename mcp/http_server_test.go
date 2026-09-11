@@ -270,3 +270,101 @@ func TestHTTPSessionFixationRejected(t *testing.T) {
 		t.Fatalf("request with fixed id should be 404, got %d", w.Code)
 	}
 }
+
+// The session ID is not a credential. These three tests replay, in-process,
+// the calls that succeeded against a live instance on 2026-09-11: a session
+// opened by one agent accepted later requests carrying no credential at all,
+// then requests carrying a different agent's identity. Same defect class as
+// CVE-2026-59822 (LiteLLM), added to the CISA KEV catalog on 2026-09-02.
+
+func TestHTTPSessionRejectsAnotherAgent(t *testing.T) {
+	h := testHTTPHandler()
+
+	w := postMCPWithAgent(h, "", "alice", rpcRequest{
+		JSONRPC: "2.0", ID: 1, Method: "initialize",
+	})
+	sessionID := w.Header().Get("Mcp-Session-Id")
+	if sessionID == "" {
+		t.Fatal("initialize returned no session ID")
+	}
+
+	w = postMCPWithAgent(h, sessionID, "mallory", rpcRequest{
+		JSONRPC: "2.0", ID: 2, Method: "tools/list",
+	})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("session reuse by another agent: got %d, want %d — the holder of a session ID must not inherit its creator's identity", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestHTTPSessionRejectsMissingCredential(t *testing.T) {
+	h := testHTTPHandler()
+
+	w := postMCPWithAgent(h, "", "alice", rpcRequest{
+		JSONRPC: "2.0", ID: 1, Method: "initialize",
+	})
+	sessionID := w.Header().Get("Mcp-Session-Id")
+
+	// No Authorization header at all: the caller resolves to "anonymous",
+	// which is not the agent that opened the session.
+	w = postMCP(h, sessionID, rpcRequest{
+		JSONRPC: "2.0", ID: 2, Method: "tools/list",
+	})
+	if w.Code != http.StatusForbidden {
+		t.Errorf("session reuse with no credential: got %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestHTTPSessionAcceptsSameAgent(t *testing.T) {
+	h := testHTTPHandler()
+
+	w := postMCPWithAgent(h, "", "alice", rpcRequest{
+		JSONRPC: "2.0", ID: 1, Method: "initialize",
+	})
+	sessionID := w.Header().Get("Mcp-Session-Id")
+
+	// The whole point of the fix is that it costs a conforming client nothing:
+	// Claude Code sends its credential on every request of a session.
+	w = postMCPWithAgent(h, sessionID, "alice", rpcRequest{
+		JSONRPC: "2.0", ID: 2, Method: "tools/list",
+	})
+	if w.Code != http.StatusOK {
+		t.Errorf("same agent reusing its own session: got %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHTTPRequireAuthRejectsAnonymous(t *testing.T) {
+	h := testHTTPHandler()
+	h.RequireAuth = true
+
+	w := postMCP(h, "", rpcRequest{JSONRPC: "2.0", ID: 1, Method: "initialize"})
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous initialize with RequireAuth: got %d, want %d — the config flag must govern this transport too", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHTTPDeleteRejectsAnotherAgent(t *testing.T) {
+	h := testHTTPHandler()
+
+	w := postMCPWithAgent(h, "", "alice", rpcRequest{
+		JSONRPC: "2.0", ID: 1, Method: "initialize",
+	})
+	sessionID := w.Header().Get("Mcp-Session-Id")
+
+	r := httptest.NewRequest("DELETE", "/mcp", nil)
+	r.Header.Set("Mcp-Session-Id", sessionID)
+	r.Header.Set("Authorization", "Bearer agent:mallory")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("session delete by another agent: got %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	// And the session must still be usable by its owner.
+	w = postMCPWithAgent(h, sessionID, "alice", rpcRequest{
+		JSONRPC: "2.0", ID: 2, Method: "tools/list",
+	})
+	if w.Code != http.StatusOK {
+		t.Errorf("owner after a refused delete: got %d, want %d — the session was destroyed anyway", w.Code, http.StatusOK)
+	}
+}

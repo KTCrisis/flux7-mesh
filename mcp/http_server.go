@@ -25,6 +25,10 @@ type HTTPHandler struct {
 	MCPManager       *Manager
 	JWTValidator     *auth.Validator
 	AllowLegacyAgent bool
+	// RequireAuth rejects callers with no credential (agent resolves to
+	// "anonymous"). Mirrors proxy.Handler.RequireAuth so a single config flag
+	// governs both data planes.
+	RequireAuth      bool
 	SupervisorMode   bool
 	SupervisorAgents []string
 	ApprovalChannel  string
@@ -99,12 +103,27 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// RequireAuth applies to this transport exactly as it does to the REST
+	// data plane: no credential means no session, and no call on one.
+	if h.RequireAuth && agentID == "anonymous" {
+		writeJSONRPCError(w, req.ID, -32600, "authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	if !isInit && sessionID != "" {
 		h.mu.Lock()
-		_, exists := h.sessions[sessionID]
+		existing, exists := h.sessions[sessionID]
 		h.mu.Unlock()
 		if !exists {
 			writeJSONRPCError(w, req.ID, -32600, "Unknown session", http.StatusNotFound)
+			return
+		}
+		// The session ID is not a credential. Identity is resolved on every
+		// request and must still match the agent that opened the session,
+		// otherwise whoever holds the ID inherits that agent's policy — the
+		// caller's own identity would never be evaluated.
+		if existing.AgentID != agentID {
+			writeJSONRPCError(w, req.ID, -32600, "session belongs to another agent", http.StatusForbidden)
 			return
 		}
 	}
@@ -131,8 +150,25 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	agentID, jwtErr := h.extractAgentID(r)
+	if jwtErr != nil {
+		http.Error(w, jwtErr.Error(), http.StatusUnauthorized)
+		return
+	}
+	if h.RequireAuth && agentID == "anonymous" {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+		return
+	}
+
 	h.mu.Lock()
-	_, exists := h.sessions[sessionID]
+	existing, exists := h.sessions[sessionID]
+	// Closing a session is a write: only its owner may do it, otherwise any
+	// holder of the ID could cut another agent's session.
+	if exists && existing.AgentID != agentID {
+		h.mu.Unlock()
+		http.Error(w, "session belongs to another agent", http.StatusForbidden)
+		return
+	}
 	if exists {
 		delete(h.sessions, sessionID)
 	}
