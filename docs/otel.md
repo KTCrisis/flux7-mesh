@@ -27,6 +27,8 @@ Every span includes the following attributes:
 |-----------|------|-------------|
 | `service.name` | resource | Always `mesh7` |
 | `agent.id` | string | Agent identity (e.g. `claude`, `crewai-researcher`) |
+| `enduser.id` | string | The human the agent acted for, when the token carried one (`auth.jwt.user_claim`). OpenTelemetry semantic-convention key; absent on agent-only calls |
+| `session.id` | string | MCP session the call belongs to (when set) |
 | `tool.name` | string | Tool that was called (e.g. `filesystem.write_file`) |
 | `policy.action` | string | Policy decision: `allow`, `deny`, `human_approval` |
 | `policy.rule` | string | Which policy rule matched |

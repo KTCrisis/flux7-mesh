@@ -482,6 +482,7 @@ auth:
     issuer: https://idp.example.com      # optional
     audience: mesh7                      # optional
     agent_claim: sub                     # claim used as agent id (default: sub)
+    user_claim: ""                       # claim naming the human the agent acts for (default: off)
     allow_legacy: false                  # keep plaintext "agent:<id>" off when JWT is on
 
   # Reject data-plane requests with no credentials (401) instead of letting
@@ -492,7 +493,7 @@ auth:
 | Setting | Guards | Default behavior when unset |
 |---------|--------|------------------------------|
 | `admin_token` | Control plane — a caller here can mint grants and resolve approvals, overriding what policies enforce | Loopback-only |
-| `jwt` | Data-plane identity — cryptographic agent id instead of the spoofable `agent:<id>` header | Plaintext identity accepted |
+| `jwt` | Data-plane identity — cryptographic agent id instead of the spoofable `agent:<id>` header. With `user_claim` set, a delegation-shaped token also carries the human the agent acts for, recorded on every trace (`user_id`) and OTel span (`enduser.id`) | Plaintext identity accepted |
 | `require_authentication` | Anonymous access to `/tools` and `/mcp-servers` enumeration | Anonymous allowed, governed by policy |
 
 The data plane (tool calls, `/decide`, `/mcp`, `/health`) is never gated by `admin_token`. Details: [control-plane auth](https://docs.flux7.art/mesh7/control-plane-auth/) and [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/).

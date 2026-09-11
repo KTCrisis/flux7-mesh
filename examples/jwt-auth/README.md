@@ -20,8 +20,29 @@ auth:
 | `issuer` | No | - | Validate `iss` claim |
 | `audience` | No | - | Validate `aud` claim |
 | `agent_claim` | No | `sub` | Which claim = agent ID |
+| `user_claim` | No | *(off)* | Which claim = the human the agent acts for. Empty means tokens carry no user and traces record none |
 
 No `auth.jwt` block = no validation (backward compatible with `Bearer agent:<name>`).
+
+## Delegation: the agent and the user
+
+A token can carry two identities at once — the agent making the call, and the
+human it acts for. This is what a delegation-shaped token looks like (Keycloak,
+or the ID-JAG / Cross-App-Access draft an identity provider issues):
+
+```yaml
+auth:
+  jwt:
+    jwks_url: https://keycloak.example.com/realms/prod/protocol/openid-connect/certs
+    agent_claim: azp   # the client — the agent
+    user_claim: sub    # the subject — the human
+```
+
+With `user_claim` set, every trace entry records `user_id` and the OTel export
+carries `enduser.id`, so a call answers *on whose behalf* it happened, not only
+*by which agent*. The user is optional by design: a client-credentials token
+(an agent acting for no one) has no user, and that absence is a fact the policy
+may act on, never a validation error.
 
 ## Local dev
 
