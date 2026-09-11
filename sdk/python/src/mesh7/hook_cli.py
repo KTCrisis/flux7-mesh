@@ -18,6 +18,8 @@ Variable                     Default                     Meaning
                                                          ``enforce`` applies denials
 ``MESH7_URL``                ``http://localhost:9090``   mesh7 data plane
 ``MESH7_AGENT``              ``claude``                  agent identity to evaluate
+``MESH7_TOKEN``              *(unset)*                   JWT presented instead of
+                                                         the self-declared agent
 ``MESH7_HOOK_TIMEOUT``       ``5``                       seconds before fail-closed
 ``MESH7_HOOK_SKIP_PREFIX``   ``mcp__``                   tool prefixes left to the
                                                          proxy, comma-separated
@@ -63,7 +65,9 @@ def _skip_prefixes() -> tuple[str, ...]:
     return tuple(p.strip() for p in raw.split(",") if p.strip())
 
 
-def decide(payload: dict[str, Any], mesh: AgentMesh | None = None) -> dict[str, Any] | None:
+def decide(
+    payload: dict[str, Any], mesh: AgentMesh | None = None
+) -> dict[str, Any] | None:
     """Evaluate one PreToolUse payload.
 
     Returns the hook output to print, or ``None`` to stay silent and let the
@@ -87,6 +91,7 @@ def decide(payload: dict[str, Any], mesh: AgentMesh | None = None) -> dict[str, 
         url=os.environ.get("MESH7_URL", "http://localhost:9090"),
         agent=os.environ.get("MESH7_AGENT", "claude"),
         timeout=int(os.environ.get("MESH7_HOOK_TIMEOUT", "5")),
+        token=os.environ.get("MESH7_TOKEN") or None,
     )
 
     try:

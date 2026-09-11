@@ -207,3 +207,8 @@ class TestAPINameRoundTrip:
         # mesh still sees the dotted form for policy evaluation
         mock_decide.assert_called_once_with("test.get_weather", {"city": "Nice"})
         assert d.result == "sunny in Nice"
+
+
+def test_token_is_forwarded_to_the_client():
+    tk = GovernedToolkit(agent="test", token="eyJ.header.sig")
+    assert tk._mesh._session.headers["Authorization"] == "Bearer eyJ.header.sig"

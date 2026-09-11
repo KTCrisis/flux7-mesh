@@ -92,3 +92,10 @@ class TestPreHook:
         inp = _input(tool="custom.tool", params={"key": "val"})
         _run(hooks._pre_hook(inp, "id-7", None))
         mesh.decide.assert_called_once_with("custom.tool", {"key": "val"})
+
+
+def test_token_is_forwarded_to_the_client():
+    from mesh7 import MeshHooks
+
+    h = MeshHooks(agent="test", token="eyJ.header.sig")
+    assert h._mesh._session.headers["Authorization"] == "Bearer eyJ.header.sig"

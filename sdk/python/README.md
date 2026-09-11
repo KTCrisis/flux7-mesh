@@ -21,6 +21,23 @@ mesh = AgentMesh("http://localhost:9090", agent="my-agent")
 # Check what's available
 tools = mesh.tools()
 health = mesh.health()
+```
+
+### Identity: self-declared or a JWT
+
+`agent="my-agent"` is a self-declared identity, sent as `Bearer agent:my-agent`.
+A mesh that validates JWTs (`auth.jwt` set, `allow_legacy` off) rejects it.
+Pass the token your identity provider issued instead:
+
+```python
+mesh = AgentMesh("https://mesh.example.com", agent="my-agent", token=jwt)
+```
+
+The mesh then resolves the agent from the token's claims — and, if the token
+carries one, the human the agent acts for (`user_claim`), which lands on every
+trace. The same `token=` exists on `GovernedToolkit` and `MeshHooks`; the CLI
+hook reads it from `MESH7_TOKEN`.
+
 
 # Policy check only (POST /decide) — no execution
 decision = mesh.decide("filesystem.write_file", {"path": "/tmp/x"})

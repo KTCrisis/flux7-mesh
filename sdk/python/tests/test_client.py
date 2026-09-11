@@ -33,7 +33,12 @@ class TestDecide:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.content = b'{"action":"allow","rule":"allow-all","agent":"test-agent","tool":"fs.read"}'
-        mock_resp.json.return_value = {"action": "allow", "rule": "allow-all", "agent": "test-agent", "tool": "fs.read"}
+        mock_resp.json.return_value = {
+            "action": "allow",
+            "rule": "allow-all",
+            "agent": "test-agent",
+            "tool": "fs.read",
+        }
         with patch.object(mesh._session, "post", return_value=mock_resp) as mock_post:
             d = mesh.decide("fs.read", {"path": "/tmp"})
         assert d.action == Action.ALLOW
@@ -57,7 +62,10 @@ class TestDecide:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.content = b'{"action":"human_approval","rule":"needs-approval"}'
-        mock_resp.json.return_value = {"action": "human_approval", "rule": "needs-approval"}
+        mock_resp.json.return_value = {
+            "action": "human_approval",
+            "rule": "needs-approval",
+        }
         with patch.object(mesh._session, "post", return_value=mock_resp):
             d = mesh.decide("fs.write", {})
         assert d.action == Action.HUMAN_APPROVAL
@@ -168,3 +176,38 @@ class TestHealth:
 
 
 import requests
+
+
+class TestToken:
+    """A JWT replaces the self-declared identity — and the body must not
+    smuggle it back in, since the mesh honours an explicit agent field over
+    the header on /decide."""
+
+    def test_token_replaces_legacy_header(self):
+        m = AgentMesh(agent="bot", token="eyJ.header.sig")
+        assert m._session.headers["Authorization"] == "Bearer eyJ.header.sig"
+
+    def test_no_token_keeps_legacy_header(self):
+        m = AgentMesh(agent="bot")
+        assert m._session.headers["Authorization"] == "Bearer agent:bot"
+
+    def test_body_omits_agent_with_token(self):
+        m = AgentMesh(agent="bot", token="eyJ.header.sig")
+        assert m._body(tool="x", arguments={}) == {"tool": "x", "arguments": {}}
+
+    def test_body_carries_agent_without_token(self):
+        m = AgentMesh(agent="bot")
+        assert m._body(tool="x", arguments={}) == {
+            "agent": "bot",
+            "tool": "x",
+            "arguments": {},
+        }
+
+    def test_decide_sends_no_agent_field_with_token(self):
+        m = AgentMesh(agent="bot", token="eyJ.header.sig")
+        with patch.object(m._session, "post") as post:
+            post.return_value = MagicMock(
+                content=b'{"action":"allow"}', json=lambda: {"action": "allow"}
+            )
+            m.decide("fs.read", {"path": "/x"})
+        assert "agent" not in post.call_args.kwargs["json"]

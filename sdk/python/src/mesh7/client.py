@@ -53,19 +53,42 @@ class AgentMesh:
         url: str = "http://localhost:9090",
         agent: str = "default",
         timeout: int = 300,
+        token: str | None = None,
     ) -> None:
+        """
+        agent:  self-declared identity, sent as ``Bearer agent:<agent>``. Only
+                accepted by a mesh with no JWT validator (or ``allow_legacy``).
+        token:  a JWT issued by the identity provider the mesh trusts. When
+                given it replaces the self-declared header, and the mesh
+                resolves the agent — and the user it acts for, if the token
+                carries one — from the token's claims. The ``agent`` value is
+                then kept only as a local label.
+        """
         self._url = url.rstrip("/")
         self._agent = agent
+        self._token = token
         self._timeout = timeout
         self._session = requests.Session()
-        self._session.headers["Authorization"] = f"Bearer agent:{agent}"
+        if token:
+            self._session.headers["Authorization"] = f"Bearer {token}"
+        else:
+            self._session.headers["Authorization"] = f"Bearer agent:{agent}"
         self._session.headers["Content-Type"] = "application/json"
+
+    def _body(self, **fields: Any) -> dict[str, Any]:
+        """Request body. With a token, identity must come from the token alone:
+        the mesh honours an explicit ``agent`` field over the header on
+        ``/decide``, so sending it would let the label override the
+        credential. Without a token the label is the identity, so it is sent."""
+        if self._token:
+            return fields
+        return {"agent": self._agent, **fields}
 
     def decide(self, name: str, arguments: dict[str, Any] | None = None) -> Decision:
         """Evaluate policy without executing. Returns allow/deny/human_approval."""
         resp = self._session.post(
             f"{self._url}/decide",
-            json={"agent": self._agent, "tool": name, "arguments": arguments or {}},
+            json=self._body(tool=name, arguments=arguments or {}),
             timeout=self._timeout,
         )
         body = resp.json() if resp.content else {}
@@ -122,7 +145,9 @@ class AgentMesh:
             for t in items
         ]
 
-    def approvals(self, status: str | None = None, tool: str | None = None) -> list[dict[str, Any]]:
+    def approvals(
+        self, status: str | None = None, tool: str | None = None
+    ) -> list[dict[str, Any]]:
         """List approvals, optionally filtered by status and/or tool glob."""
         params: dict[str, str] = {}
         if status:
@@ -197,7 +222,7 @@ class AgentMesh:
         """Create a temporal grant."""
         resp = self._session.post(
             f"{self._url}/grants",
-            json={"agent": self._agent, "tools": tools, "duration": duration},
+            json=self._body(tools=tools, duration=duration),
             timeout=self._timeout,
         )
         resp.raise_for_status()

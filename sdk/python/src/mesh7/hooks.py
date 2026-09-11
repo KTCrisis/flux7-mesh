@@ -39,8 +39,9 @@ class MeshHooks:
         mesh: AgentMesh | None = None,
         tool_matcher: str = ".*",
         fail_action: str = "deny",
+        token: str | None = None,
     ) -> None:
-        self._mesh = mesh or AgentMesh(url=url, agent=agent)
+        self._mesh = mesh or AgentMesh(url=url, agent=agent, token=token)
         self._tool_matcher = tool_matcher
         self._fail_action = fail_action
 
@@ -66,9 +67,7 @@ class MeshHooks:
         tool_input = input_data.get("tool_input", {})
 
         try:
-            decision = await asyncio.to_thread(
-                self._mesh.decide, tool_name, tool_input
-            )
+            decision = await asyncio.to_thread(self._mesh.decide, tool_name, tool_input)
         except Exception:
             return _permission(self._fail_action, "mesh7 unreachable — fail closed")
 

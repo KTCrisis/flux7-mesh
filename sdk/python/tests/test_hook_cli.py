@@ -189,4 +189,31 @@ class TestMain:
             "url": "http://mesh.internal:9999",
             "agent": "claude-code",
             "timeout": 3,
+            "token": None,  # MESH7_TOKEN unset: legacy header, never an empty Bearer
         }
+
+
+def test_mesh7_token_env_reaches_the_client(monkeypatch):
+    """MESH7_TOKEN must become AgentMesh(token=...); unset must stay None so
+    the legacy header is used, not an empty Bearer."""
+    from mesh7 import hook_cli
+
+    seen: dict = {}
+
+    class FakeMesh:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def decide(self, *a, **k):
+            return Decision(action=Action.ALLOW, tool="Bash")
+
+    monkeypatch.setattr(hook_cli, "AgentMesh", FakeMesh)
+    monkeypatch.setenv("MESH7_HOOK_MODE", "enforce")
+    monkeypatch.setenv("MESH7_TOKEN", "eyJ.header.sig")
+    hook_cli.decide({"tool_name": "Bash", "tool_input": {"command": "ls"}})
+    assert seen.get("token") == "eyJ.header.sig"
+
+    seen.clear()
+    monkeypatch.delenv("MESH7_TOKEN")
+    hook_cli.decide({"tool_name": "Bash", "tool_input": {"command": "ls"}})
+    assert seen.get("token") is None

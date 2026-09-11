@@ -72,8 +72,9 @@ class GovernedToolkit:
         url: str = "http://localhost:9090",
         mesh: AgentMesh | None = None,
         namespace: str | None = None,
+        token: str | None = None,
     ) -> None:
-        self._mesh = mesh or AgentMesh(url=url, agent=agent)
+        self._mesh = mesh or AgentMesh(url=url, agent=agent, token=token)
         self._tools: dict[str, Callable] = {}
         self._namespace = namespace or agent
 
