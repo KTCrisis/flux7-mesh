@@ -14,7 +14,7 @@ import (
 // SessionSummary groups trace entries that share a session ID.
 type SessionSummary struct {
 	SessionID  string    `json:"session_id"`
-	AgentID    string    `json:"agent_id"`    // first agent seen
+	AgentID    string    `json:"agent_id"` // first agent seen
 	EventCount int       `json:"event_count"`
 	FirstSeen  time.Time `json:"first_seen"`
 	LastSeen   time.Time `json:"last_seen"`
@@ -23,12 +23,17 @@ type SessionSummary struct {
 
 // Entry represents a single traced tool call.
 type Entry struct {
-	TraceID    string         `json:"trace_id"`
-	SessionID  string         `json:"session_id,omitempty"`
-	AgentID    string         `json:"agent_id"`
+	TraceID   string `json:"trace_id"`
+	SessionID string `json:"session_id,omitempty"`
+	AgentID   string `json:"agent_id"`
+	// UserID is the human the agent acted for, when the credential carried
+	// one (auth.jwt.user_claim). It is the half of the delegation that an
+	// identity provider issues and then forgets; recording it here is what
+	// lets a trace answer "on whose behalf", not only "by which agent".
+	UserID     string         `json:"user_id,omitempty"`
 	Tool       string         `json:"tool"`
 	Params     map[string]any `json:"params"`
-	Policy     string         `json:"policy"`     // allow, deny, human_approval
+	Policy     string         `json:"policy"`      // allow, deny, human_approval
 	PolicyRule string         `json:"policy_rule"` // which rule matched
 	StatusCode int            `json:"status_code"` // backend response status
 	LatencyMs  int64          `json:"latency_ms"`

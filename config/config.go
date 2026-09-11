@@ -67,6 +67,11 @@ type JWTConfig struct {
 	Issuer     string `yaml:"issuer,omitempty"`
 	Audience   string `yaml:"audience,omitempty"`
 	AgentClaim string `yaml:"agent_claim,omitempty"` // default: "sub"
+	// UserClaim names the claim carrying the human the agent acts for. Empty
+	// (the default) means the token carries no user and traces record none.
+	// With a delegation-shaped token (Keycloak, ID-JAG) the usual pair is
+	// agent_claim: azp, user_claim: sub.
+	UserClaim string `yaml:"user_claim,omitempty"`
 	// AllowLegacy re-enables the plaintext "agent:<id>" identity bypass even
 	// when JWT is configured. Off by default — keeping it off means a
 	// validated JWT is the only accepted identity (no spoofing past crypto).

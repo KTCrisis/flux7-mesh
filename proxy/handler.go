@@ -188,11 +188,12 @@ func subtleConstEq(a, b string) bool {
 
 func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	toolName := strings.TrimPrefix(r.URL.Path, "/tool/")
-	agentID, jwtErr := h.extractAgentID(r)
+	ident, jwtErr := h.extractIdentity(r)
 	if jwtErr != nil {
 		writeJSON(w, 401, map[string]string{"error": jwtErr.Error()})
 		return
 	}
+	agentID, userID := ident.AgentID, ident.UserID
 	if h.RequireAuth && agentID == "anonymous" {
 		writeJSON(w, 401, map[string]string{"error": "authentication required"})
 		return
@@ -231,6 +232,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 				TraceID:    traceID,
 				SessionID:  sessionID,
 				AgentID:    agentID,
+				UserID:     userID,
 				Tool:       toolName,
 				Params:     req.Params,
 				Policy:     "rate_limited",
@@ -260,6 +262,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 			TraceID:    traceID,
 			SessionID:  sessionID,
 			AgentID:    agentID,
+			UserID:     userID,
 			Tool:       toolName,
 			Params:     req.Params,
 			Policy:     "deny",
@@ -310,6 +313,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 				TraceID:    traceID,
 				SessionID:  sessionID,
 				AgentID:    agentID,
+				UserID:     userID,
 				Tool:       toolName,
 				Params:     req.Params,
 				Policy:     "human_approval",
@@ -332,6 +336,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 			TraceID:    traceID,
 			SessionID:  sessionID,
 			AgentID:    agentID,
+			UserID:     userID,
 			Tool:       toolName,
 			Params:     req.Params,
 			Policy:     "human_approval",
@@ -423,6 +428,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		TraceID:               traceID,
 		SessionID:             sessionID,
 		AgentID:               agentID,
+		UserID:                userID,
 		Tool:                  toolName,
 		Params:                req.Params,
 		Policy:                "allow",
@@ -481,9 +487,10 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := req.Agent
+	var userID string
 	if agentID == "" {
-		var jwtErr error
-		agentID, jwtErr = h.extractAgentID(r)
+		ident, jwtErr := h.extractIdentity(r)
+		agentID, userID = ident.AgentID, ident.UserID
 		if jwtErr != nil {
 			writeJSON(w, 401, map[string]any{"error": jwtErr.Error()})
 			return
@@ -531,6 +538,7 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 		TraceID:       traceID,
 		SessionID:     sessionID,
 		AgentID:       agentID,
+		UserID:        userID,
 		Tool:          toolName,
 		Params:        req.Arguments,
 		Policy:        decision.Action,
@@ -879,12 +887,18 @@ func extractSessionID(r *http.Request) string {
 	return r.Header.Get("X-Session-Id")
 }
 
-// extractAgentID reads the agent ID from the Authorization header.
+// extractIdentity reads the agent and, when the credential carries one, the
+// user from the Authorization header.
 // Legacy format "Bearer agent:<id>" bypasses JWT validation.
 // If JWTValidator is configured, Bearer tokens are validated as JWT.
-// Returns (agentID, nil) on success or ("", error) if JWT validation fails.
+func (h *Handler) extractIdentity(r *http.Request) (auth.Identity, error) {
+	return auth.ResolveIdentity(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
+}
+
+// extractAgentID is extractIdentity for callers that only need the agent.
 func (h *Handler) extractAgentID(r *http.Request) (string, error) {
-	return auth.ResolveAgentID(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
+	id, err := h.extractIdentity(r)
+	return id.AgentID, err
 }
 
 // --- Approval endpoints ---
@@ -897,16 +911,16 @@ type approvalView struct {
 	// TraceID is the call awaiting this decision. An operator extending the
 	// decision into a grant needs it, otherwise the grant has no origin to
 	// record and the chain of authority starts empty.
-	TraceID       string `json:"trace_id,omitempty"`
-	PolicyRule    string `json:"policy_rule"`
-	Status        string         `json:"status"`
-	CreatedAt     time.Time      `json:"created_at"`
-	Remaining     string         `json:"remaining,omitempty"`
-	ResolvedBy    string         `json:"resolved_by,omitempty"`
-	ResolvedAt    *time.Time     `json:"resolved_at,omitempty"`
-	Reasoning     string         `json:"reasoning,omitempty"`
-	Confidence    float64        `json:"confidence,omitempty"`
-	InjectionRisk bool           `json:"injection_risk,omitempty"`
+	TraceID       string     `json:"trace_id,omitempty"`
+	PolicyRule    string     `json:"policy_rule"`
+	Status        string     `json:"status"`
+	CreatedAt     time.Time  `json:"created_at"`
+	Remaining     string     `json:"remaining,omitempty"`
+	ResolvedBy    string     `json:"resolved_by,omitempty"`
+	ResolvedAt    *time.Time `json:"resolved_at,omitempty"`
+	Reasoning     string     `json:"reasoning,omitempty"`
+	Confidence    float64    `json:"confidence,omitempty"`
+	InjectionRisk bool       `json:"injection_risk,omitempty"`
 }
 
 // approvalDetailView extends approvalView with context for supervisor evaluation.

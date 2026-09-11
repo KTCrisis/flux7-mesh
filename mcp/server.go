@@ -116,6 +116,7 @@ type Server struct {
 	Handler          *proxy.Handler
 	MCPManager       *Manager
 	AgentID          string   // agent ID for policy evaluation in MCP mode
+	UserID           string   // human the agent acts for, when the credential carried one
 	SessionID        string   // optional session ID (set externally or auto-generated at initialize)
 	SupervisorMode   bool     // when true, hide approval.* virtual tools from agents
 	SupervisorAgents []string // agent ID globs allowed to see approval tools in supervisor mode
@@ -419,6 +420,7 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 		s.Traces.Record(trace.Entry{
 			SessionID:  s.SessionID,
 			AgentID:    s.AgentID,
+			UserID:     s.UserID,
 			Tool:       toolName,
 			Params:     arguments,
 			Policy:     "deny",
@@ -450,6 +452,7 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 		entry := trace.Entry{
 			SessionID:  s.SessionID,
 			AgentID:    s.AgentID,
+			UserID:     s.UserID,
 			Tool:       toolName,
 			Params:     arguments,
 			Policy:     "human_approval",
@@ -584,6 +587,7 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 	entry := trace.Entry{
 		SessionID:             s.SessionID,
 		AgentID:               s.AgentID,
+		UserID:                s.UserID,
 		Tool:                  toolName,
 		Params:                arguments,
 		Policy:                "allow",

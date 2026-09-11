@@ -27,9 +27,17 @@ var ErrIdentityRequired = errors.New("authentication required: present a valid J
 //
 // An empty header resolves to "anonymous" in both postures.
 func ResolveAgentID(authHeader string, v *Validator, allowLegacy bool) (string, error) {
+	id, err := ResolveIdentity(authHeader, v, allowLegacy)
+	return id.AgentID, err
+}
+
+// ResolveIdentity is ResolveAgentID with the user half kept. Only a validated
+// JWT can carry a user; the self-declared "agent:<id>" form and the local
+// posture never do, so UserID is empty there by construction.
+func ResolveIdentity(authHeader string, v *Validator, allowLegacy bool) (Identity, error) {
 	raw := strings.TrimPrefix(authHeader, "Bearer ")
 	if raw == "" {
-		return "anonymous", nil
+		return Identity{AgentID: "anonymous"}, nil
 	}
 	hasAgentPrefix := strings.HasPrefix(raw, "agent:")
 
@@ -37,19 +45,19 @@ func ResolveAgentID(authHeader string, v *Validator, allowLegacy bool) (string, 
 		// Strict: a configured JWT validator is the source of truth.
 		if hasAgentPrefix {
 			if allowLegacy {
-				return strings.TrimPrefix(raw, "agent:"), nil
+				return Identity{AgentID: strings.TrimPrefix(raw, "agent:")}, nil
 			}
-			return "", ErrIdentityRequired
+			return Identity{}, ErrIdentityRequired
 		}
 		if strings.Count(raw, ".") == 2 {
-			return v.ValidateToken(raw)
+			return v.ValidateIdentity(raw)
 		}
-		return "", ErrIdentityRequired
+		return Identity{}, ErrIdentityRequired
 	}
 
 	// Local posture: no JWT configured, identity is self-declared.
 	if hasAgentPrefix {
-		return strings.TrimPrefix(raw, "agent:"), nil
+		return Identity{AgentID: strings.TrimPrefix(raw, "agent:")}, nil
 	}
-	return raw, nil
+	return Identity{AgentID: raw}, nil
 }

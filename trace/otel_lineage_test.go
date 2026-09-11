@@ -84,3 +84,29 @@ func TestOTLPOmitsParentSpanWhenRootless(t *testing.T) {
 		t.Errorf("parentSpanId must be absent on a root span, got %s", raw)
 	}
 }
+
+func TestOTLPCarriesEndUserWhenPresent(t *testing.T) {
+	e := NewOTELExporter("stdout")
+
+	out := e.toOTLP(Entry{TraceID: NewID(), AgentID: "newsletter-agent", UserID: "marc", Tool: "read_file"})
+	attrs := map[string]string{}
+	for _, kv := range out.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes {
+		if kv.Value.StringValue != nil {
+			attrs[kv.Key] = *kv.Value.StringValue
+		}
+	}
+	// enduser.id is the semantic-convention key; agent.id stays ours.
+	if attrs["enduser.id"] != "marc" {
+		t.Errorf("expected enduser.id=marc, got %q", attrs["enduser.id"])
+	}
+	if attrs["agent.id"] != "newsletter-agent" {
+		t.Errorf("agent.id must be untouched, got %q", attrs["agent.id"])
+	}
+
+	out = e.toOTLP(Entry{TraceID: NewID(), AgentID: "batch-agent", Tool: "read_file"})
+	for _, kv := range out.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes {
+		if kv.Key == "enduser.id" {
+			t.Error("enduser.id must be absent when the entry carries no user")
+		}
+	}
+}

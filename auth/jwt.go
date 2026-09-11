@@ -23,6 +23,7 @@ import (
 type Validator struct {
 	parser     *jwt.Parser
 	agentClaim string
+	userClaim  string // empty = tokens carry no user
 	jwksURL    string
 
 	mu   sync.RWMutex
@@ -52,6 +53,7 @@ func NewValidator(cfg *config.JWTConfig) (*Validator, error) {
 	v := &Validator{
 		parser:     jwt.NewParser(opts...),
 		agentClaim: claim,
+		userClaim:  cfg.UserClaim,
 		jwksURL:    cfg.JWKSURL,
 		keys:       make(map[string]any),
 		stop:       make(chan struct{}),
@@ -78,34 +80,75 @@ func NewValidatorWithKeys(keys map[string]any, opts ...jwt.ParserOption) *Valida
 	}
 }
 
+// SetAgentClaim overrides which claim names the agent. Mostly for tests built
+// on NewValidatorWithKeys; production reads it from config.
+func (v *Validator) SetAgentClaim(claim string) {
+	v.agentClaim = claim
+}
+
+// SetUserClaim configures the claim carrying the delegating user. Mostly for
+// tests built on NewValidatorWithKeys; production reads it from config.
+func (v *Validator) SetUserClaim(claim string) {
+	v.userClaim = claim
+}
+
 // Close stops the background JWKS refresh.
 func (v *Validator) Close() {
 	close(v.stop)
 }
 
-// ValidateToken parses and validates a JWT, returning the agent ID from the configured claim.
+// Identity is what a credential resolves to: the agent making the call and,
+// when the token carries one, the human it acts for. UserID is empty for
+// agent-only tokens (client credentials) and in the local, non-JWT posture.
+type Identity struct {
+	AgentID string
+	UserID  string
+}
+
+// ValidateToken parses and validates a JWT, returning the agent ID from the
+// configured claim. Kept for callers that only need the agent.
 func (v *Validator) ValidateToken(tokenStr string) (string, error) {
+	id, err := v.ValidateIdentity(tokenStr)
+	return id.AgentID, err
+}
+
+// ValidateIdentity parses and validates a JWT and returns both halves of the
+// delegation: the agent (required) and the user (optional, only when a user
+// claim is configured and present).
+func (v *Validator) ValidateIdentity(tokenStr string) (Identity, error) {
 	token, err := v.parser.Parse(tokenStr, v.keyFunc)
 	if err != nil {
-		return "", fmt.Errorf("invalid token: %w", err)
+		return Identity{}, fmt.Errorf("invalid token: %w", err)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", fmt.Errorf("unexpected claims type")
+		return Identity{}, fmt.Errorf("unexpected claims type")
 	}
 
 	agent, ok := claims[v.agentClaim]
 	if !ok {
-		return "", fmt.Errorf("missing claim %q", v.agentClaim)
+		return Identity{}, fmt.Errorf("missing claim %q", v.agentClaim)
 	}
-
 	agentStr, ok := agent.(string)
 	if !ok {
-		return "", fmt.Errorf("claim %q is not a string", v.agentClaim)
+		return Identity{}, fmt.Errorf("claim %q is not a string", v.agentClaim)
+	}
+	id := Identity{AgentID: agentStr}
+
+	// The user claim is optional by design: a client-credentials token has
+	// none, and that absence is itself a fact the policy may act on.
+	if v.userClaim != "" {
+		if user, ok := claims[v.userClaim]; ok {
+			if userStr, ok := user.(string); ok {
+				id.UserID = userStr
+			} else {
+				return Identity{}, fmt.Errorf("claim %q is not a string", v.userClaim)
+			}
+		}
 	}
 
-	return agentStr, nil
+	return id, nil
 }
 
 func (v *Validator) keyFunc(token *jwt.Token) (any, error) {

@@ -101,7 +101,7 @@ type otlpExport struct {
 }
 
 type otlpResourceSpan struct {
-	Resource  otlpResource   `json:"resource"`
+	Resource   otlpResource    `json:"resource"`
 	ScopeSpans []otlpScopeSpan `json:"scopeSpans"`
 }
 
@@ -120,15 +120,15 @@ type otlpScope struct {
 }
 
 type otlpSpan struct {
-	TraceID            string     `json:"traceId"`
-	SpanID             string     `json:"spanId"`
-	ParentSpanID       string     `json:"parentSpanId,omitempty"`
-	Name               string     `json:"name"`
-	Kind               int        `json:"kind"` // 3 = SERVER
-	StartTimeUnixNano  string     `json:"startTimeUnixNano"`
-	EndTimeUnixNano    string     `json:"endTimeUnixNano"`
-	Attributes         []otlpKV   `json:"attributes"`
-	Status             otlpStatus `json:"status"`
+	TraceID           string     `json:"traceId"`
+	SpanID            string     `json:"spanId"`
+	ParentSpanID      string     `json:"parentSpanId,omitempty"`
+	Name              string     `json:"name"`
+	Kind              int        `json:"kind"` // 3 = SERVER
+	StartTimeUnixNano string     `json:"startTimeUnixNano"`
+	EndTimeUnixNano   string     `json:"endTimeUnixNano"`
+	Attributes        []otlpKV   `json:"attributes"`
+	Status            otlpStatus `json:"status"`
 }
 
 type otlpStatus struct {
@@ -146,8 +146,8 @@ type otlpValue struct {
 	IntValue    *string `json:"intValue,omitempty"`
 }
 
-func strVal(s string) otlpValue  { return otlpValue{StringValue: &s} }
-func intVal(n int64) otlpValue   { v := fmt.Sprintf("%d", n); return otlpValue{IntValue: &v} }
+func strVal(s string) otlpValue { return otlpValue{StringValue: &s} }
+func intVal(n int64) otlpValue  { v := fmt.Sprintf("%d", n); return otlpValue{IntValue: &v} }
 
 func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 	endTime := entry.Timestamp
@@ -186,6 +186,11 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 
 	if entry.SessionID != "" {
 		attrs = append(attrs, otlpKV{Key: "session.id", Value: strVal(entry.SessionID)})
+	}
+	// enduser.id is the OpenTelemetry semantic-convention name for the
+	// authenticated human behind a request; agent.id stays our own key.
+	if entry.UserID != "" {
+		attrs = append(attrs, otlpKV{Key: "enduser.id", Value: strVal(entry.UserID)})
 	}
 	if entry.Error != "" {
 		attrs = append(attrs, otlpKV{Key: "error.message", Value: strVal(entry.Error)})

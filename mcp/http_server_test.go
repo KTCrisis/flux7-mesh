@@ -2,12 +2,18 @@ package mcp
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
+	"github.com/KTCrisis/flux7-mesh/auth"
 	"github.com/KTCrisis/flux7-mesh/config"
 	"github.com/KTCrisis/flux7-mesh/policy"
 	"github.com/KTCrisis/flux7-mesh/proxy"
@@ -366,5 +372,82 @@ func TestHTTPDeleteRejectsAnotherAgent(t *testing.T) {
 	})
 	if w.Code != http.StatusOK {
 		t.Errorf("owner after a refused delete: got %d, want %d — the session was destroyed anyway", w.Code, http.StatusOK)
+	}
+}
+
+// End to end over the real MCP transport: a delegated JWT (azp = agent,
+// sub = user) opens a session and calls a tool. The user must land in the
+// trace entry — this is the deliverable line of the Kong PoC, the one that
+// names the human behind the agent where a gateway log names only the agent.
+func TestHTTPTraceCarriesDelegatedUser(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := auth.NewValidatorWithKeys(map[string]any{"test-key": &priv.PublicKey})
+	validator.SetAgentClaim("azp")
+	validator.SetUserClaim("sub")
+
+	reg := registry.New()
+	reg.LoadManual(&registry.Tool{Name: "echo", Description: "echo", Source: "openapi",
+		Params: []registry.Param{{Name: "msg", In: "body", Type: "string"}}})
+	// Deny keeps the call off any backend while still recording a trace entry.
+	pol := policy.NewEngine([]config.Policy{
+		{Name: "deny-all", Agent: "*", Rules: []config.Rule{{Tools: []string{"*"}, Action: "deny"}}},
+	})
+	traces := trace.NewStore(100)
+	handler := proxy.NewHandler(reg, pol, traces)
+	h := NewHTTPHandler(reg, pol, traces, approval.NewStore(30), handler, nil, false, nil, "queue")
+	h.JWTValidator = validator
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"azp": "newsletter-agent", "sub": "marc",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tok.Header["kid"] = "test-key"
+	signed, err := tok.SignedString(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bearer := func(sessionID, method, name string) *httptest.ResponseRecorder {
+		params := map[string]any{}
+		if name != "" {
+			params = map[string]any{"name": name, "arguments": map[string]any{"msg": "hi"}}
+		}
+		body, _ := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
+		r := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+signed)
+		if sessionID != "" {
+			r.Header.Set("Mcp-Session-Id", sessionID)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	w := bearer("", "initialize", "")
+	sessionID := w.Header().Get("Mcp-Session-Id")
+	if sessionID == "" {
+		t.Fatal("no session ID from initialize")
+	}
+	bearer(sessionID, "tools/call", "echo")
+
+	entries := traces.Query("", "", 10)
+	found := false
+	for _, e := range entries {
+		if e.Tool == "echo" {
+			found = true
+			if e.AgentID != "newsletter-agent" {
+				t.Errorf("agent_id: got %q, want newsletter-agent", e.AgentID)
+			}
+			if e.UserID != "marc" {
+				t.Errorf("user_id: got %q, want marc — the delegated user was lost", e.UserID)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no trace entry recorded for the tool call")
 	}
 }

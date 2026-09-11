@@ -199,3 +199,73 @@ func TestValidateTokenUnknownKid(t *testing.T) {
 		t.Fatal("expected error for unknown kid")
 	}
 }
+
+// A delegation-shaped token carries two halves: the agent (azp) and the human
+// it acts for (sub). Until 2026-09-11 only one claim was read, and the user
+// was dropped on the floor — the identity provider issued it and nobody kept it.
+
+func TestValidateIdentityReadsUserClaim(t *testing.T) {
+	priv, v := testKey(t)
+	v.agentClaim = "azp"
+	v.SetUserClaim("sub")
+
+	tok := signToken(t, priv, jwt.MapClaims{
+		"sub": "marc", "azp": "newsletter-agent",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	id, err := v.ValidateIdentity(tok)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.AgentID != "newsletter-agent" || id.UserID != "marc" {
+		t.Errorf("got %+v, want agent=newsletter-agent user=marc", id)
+	}
+}
+
+func TestValidateIdentityUserClaimAbsentIsNotAnError(t *testing.T) {
+	// Client-credentials tokens have no user. That absence is a fact for the
+	// policy to act on, not a validation failure.
+	priv, v := testKey(t)
+	v.agentClaim = "azp"
+	v.SetUserClaim("sub")
+
+	tok := signToken(t, priv, jwt.MapClaims{
+		"azp": "batch-agent",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	id, err := v.ValidateIdentity(tok)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.AgentID != "batch-agent" || id.UserID != "" {
+		t.Errorf("got %+v, want agent=batch-agent and empty user", id)
+	}
+}
+
+func TestValidateIdentityUserClaimOffByDefault(t *testing.T) {
+	// No user_claim configured: the user half is never read, even if present.
+	priv, v := testKey(t)
+	tok := signToken(t, priv, jwt.MapClaims{
+		"sub": "agent-x", "user": "marc",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	id, err := v.ValidateIdentity(tok)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.UserID != "" {
+		t.Errorf("user claim read without being configured: %q", id.UserID)
+	}
+}
+
+func TestResolveIdentityLocalPostureHasNoUser(t *testing.T) {
+	// Self-declared identity can name an agent, never a user: only a validated
+	// token may assert on whose behalf a call is made.
+	id, err := ResolveIdentity("Bearer agent:scout7", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.AgentID != "scout7" || id.UserID != "" {
+		t.Errorf("got %+v", id)
+	}
+}

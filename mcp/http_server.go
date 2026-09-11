@@ -83,11 +83,12 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := r.Header.Get("Mcp-Session-Id")
-	agentID, jwtErr := h.extractAgentID(r)
+	ident, jwtErr := h.extractIdentity(r)
 	if jwtErr != nil {
 		writeJSONRPCError(w, req.ID, -32600, jwtErr.Error(), http.StatusUnauthorized)
 		return
 	}
+	agentID := ident.AgentID
 
 	isInit := req.Method == "initialize"
 
@@ -122,13 +123,13 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		// request and must still match the agent that opened the session,
 		// otherwise whoever holds the ID inherits that agent's policy — the
 		// caller's own identity would never be evaluated.
-		if existing.AgentID != agentID {
+		if existing.AgentID != agentID || existing.UserID != ident.UserID {
 			writeJSONRPCError(w, req.ID, -32600, "session belongs to another agent", http.StatusForbidden)
 			return
 		}
 	}
 
-	srv := h.getOrCreateSession(sessionID, agentID)
+	srv := h.getOrCreateSession(sessionID, ident)
 	resp := srv.HandleRequest(req)
 
 	// Notifications — no response body.
@@ -150,11 +151,12 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID, jwtErr := h.extractAgentID(r)
+	ident, jwtErr := h.extractIdentity(r)
 	if jwtErr != nil {
 		http.Error(w, jwtErr.Error(), http.StatusUnauthorized)
 		return
 	}
+	agentID := ident.AgentID
 	if h.RequireAuth && agentID == "anonymous" {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
@@ -164,7 +166,7 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	existing, exists := h.sessions[sessionID]
 	// Closing a session is a write: only its owner may do it, otherwise any
 	// holder of the ID could cut another agent's session.
-	if exists && existing.AgentID != agentID {
+	if exists && (existing.AgentID != agentID || existing.UserID != ident.UserID) {
 		h.mu.Unlock()
 		http.Error(w, "session belongs to another agent", http.StatusForbidden)
 		return
@@ -183,7 +185,8 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
+func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity) *Server {
+	agentID := ident.AgentID
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -203,6 +206,7 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 		Handler:          h.Handler,
 		MCPManager:       h.MCPManager,
 		AgentID:          agentID,
+		UserID:           ident.UserID,
 		SessionID:        trace.NewID(),
 		SupervisorMode:   h.SupervisorMode,
 		SupervisorAgents: h.SupervisorAgents,
@@ -214,8 +218,8 @@ func (h *HTTPHandler) getOrCreateSession(sessionID, agentID string) *Server {
 	return srv
 }
 
-func (h *HTTPHandler) extractAgentID(r *http.Request) (string, error) {
-	return auth.ResolveAgentID(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
+func (h *HTTPHandler) extractIdentity(r *http.Request) (auth.Identity, error) {
+	return auth.ResolveIdentity(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
 }
 
 func writeJSONRPCError(w http.ResponseWriter, id any, code int, msg string, httpStatus int) {
