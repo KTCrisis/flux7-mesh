@@ -14,20 +14,29 @@ import (
 )
 
 type Config struct {
-	Port         int               `yaml:"port"`
-	StoragePath  string            `yaml:"storage_path"` // SQLite DB for durable state (approvals, grants)
-	TraceFile    string            `yaml:"trace_file"`
-	OTELEndpoint string            `yaml:"otel_endpoint"` // "stdout" or "http://localhost:4318" (OTLP HTTP)
-	Auth         AuthConfig        `yaml:"auth"`
-	TLS          TLSConfig         `yaml:"tls,omitempty"`
-	Approval     ApprovalConfig    `yaml:"approval"`
-	Supervisor   SupervisorConfig  `yaml:"supervisor"`
-	Memory       MemoryConfig      `yaml:"memory"`
-	Policies     []Policy          `yaml:"policies"`
-	PolicyDir    string            `yaml:"policy_dir,omitempty"` // directory of per-agent policy files
-	MCPServers   []MCPServerConfig `yaml:"mcp_servers"`
-	CLITools     []CLIToolConfig   `yaml:"cli_tools"`
-	OpenAPIs     []OpenAPIConfig   `yaml:"openapi,omitempty"`
+	Port         int    `yaml:"port"`
+	StoragePath  string `yaml:"storage_path"` // SQLite DB for durable state (approvals, grants)
+	TraceFile    string `yaml:"trace_file"`
+	OTELEndpoint string `yaml:"otel_endpoint"` // "stdout" or "http://localhost:4318" (OTLP HTTP)
+	// OTELHeaders are sent on every OTLP/HTTP export, e.g. an Authorization
+	// header for Grafana Cloud or Datadog. Values go through os.ExpandEnv, so
+	// the secret itself stays in the environment: `Authorization: "Bearer ${OTEL_TOKEN}"`.
+	OTELHeaders map[string]string `yaml:"otel_headers,omitempty"`
+	// OTELCACert is a PEM file trusted for the collector's TLS certificate
+	// (a private CA). OTELInsecureSkipVerify disables verification entirely and
+	// is only meant for a local collector with a self-signed certificate.
+	OTELCACert             string            `yaml:"otel_ca_cert,omitempty"`
+	OTELInsecureSkipVerify bool              `yaml:"otel_insecure_skip_verify,omitempty"`
+	Auth                   AuthConfig        `yaml:"auth"`
+	TLS                    TLSConfig         `yaml:"tls,omitempty"`
+	Approval               ApprovalConfig    `yaml:"approval"`
+	Supervisor             SupervisorConfig  `yaml:"supervisor"`
+	Memory                 MemoryConfig      `yaml:"memory"`
+	Policies               []Policy          `yaml:"policies"`
+	PolicyDir              string            `yaml:"policy_dir,omitempty"` // directory of per-agent policy files
+	MCPServers             []MCPServerConfig `yaml:"mcp_servers"`
+	CLITools               []CLIToolConfig   `yaml:"cli_tools"`
+	OpenAPIs               []OpenAPIConfig   `yaml:"openapi,omitempty"`
 }
 
 // AuthConfig holds authentication settings.
@@ -316,6 +325,11 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Port == 0 {
 		cfg.Port = 9090
+	}
+	// Only header values are expanded: the rest of the file is taken literally,
+	// so a "$" in a policy or a path never turns into an environment lookup.
+	for k, v := range cfg.OTELHeaders {
+		cfg.OTELHeaders[k] = os.ExpandEnv(v)
 	}
 	if cfg.Approval.TimeoutSeconds == 0 {
 		cfg.Approval.TimeoutSeconds = 300

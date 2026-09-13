@@ -101,10 +101,19 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 
 	// OTEL exporter
 	if cfg.OTELEndpoint != "" {
-		otelExp := trace.NewOTELExporter(cfg.OTELEndpoint)
+		otelExp := trace.NewOTELExporterWithOptions(cfg.OTELEndpoint, trace.OTELOptions{
+			Headers:            cfg.OTELHeaders,
+			CACert:             cfg.OTELCACert,
+			InsecureSkipVerify: cfg.OTELInsecureSkipVerify,
+		})
 		m.traces.OTEL = otelExp
 		m.closers = append(m.closers, func() { otelExp.Close() })
-		slog.Info("OTEL exporter ready", "endpoint", cfg.OTELEndpoint)
+		// Header names only: a value may be a bearer token.
+		names := make([]string, 0, len(cfg.OTELHeaders))
+		for k := range cfg.OTELHeaders {
+			names = append(names, k)
+		}
+		slog.Info("OTEL exporter ready", "endpoint", cfg.OTELEndpoint, "headers", names, "ca_cert", cfg.OTELCACert != "", "insecure_skip_verify", cfg.OTELInsecureSkipVerify)
 	}
 
 	// Approval store
