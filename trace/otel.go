@@ -3,6 +3,8 @@ package trace
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,19 +21,36 @@ type OTELExporter struct {
 	endpoint string // "stdout", "http://...", or file path ending in ".jsonl"
 	client   *http.Client
 	service  string
+	headers  map[string]string // sent on every OTLP/HTTP request (auth, tenant…)
 
 	// JSONL file output
 	file   *os.File
 	fileMu sync.Mutex
 }
 
-// NewOTELExporter creates an exporter.
+// OTELOptions tunes the HTTP transport of an exporter. The zero value is the
+// historical behaviour: no extra headers, system trust store, verification on.
+type OTELOptions struct {
+	Headers            map[string]string
+	CACert             string // PEM file appended to the system roots
+	InsecureSkipVerify bool
+}
+
+// NewOTELExporter creates an exporter with default transport options.
 // endpoint: "stdout", "http://..." (OTLP HTTP), or a file path (e.g. "/path/traces-otel.jsonl").
 func NewOTELExporter(endpoint string) *OTELExporter {
+	return NewOTELExporterWithOptions(endpoint, OTELOptions{})
+}
+
+// NewOTELExporterWithOptions creates an exporter whose HTTP requests carry the
+// given headers and trust the given CA. A bad CA file is logged and ignored
+// rather than fatal: losing traces must never take the proxy down.
+func NewOTELExporterWithOptions(endpoint string, opts OTELOptions) *OTELExporter {
 	exp := &OTELExporter{
 		endpoint: endpoint,
-		client:   &http.Client{Timeout: 5 * time.Second},
+		client:   &http.Client{Timeout: 5 * time.Second, Transport: otelTransport(opts)},
 		service:  "flux7-mesh",
+		headers:  opts.Headers,
 	}
 
 	// If not stdout and not http, treat as file path
@@ -49,6 +68,34 @@ func NewOTELExporter(endpoint string) *OTELExporter {
 
 func isHTTP(s string) bool {
 	return len(s) > 7 && (s[:7] == "http://" || s[:8] == "https://")
+}
+
+// otelTransport builds the HTTP transport from the options. It starts from a
+// clone of the default transport so proxies, timeouts and keep-alives stay as
+// Go ships them; only the TLS settings change.
+func otelTransport(opts OTELOptions) http.RoundTripper {
+	if opts.CACert == "" && !opts.InsecureSkipVerify {
+		return http.DefaultTransport
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tlsCfg := &tls.Config{InsecureSkipVerify: opts.InsecureSkipVerify} //nolint:gosec // operator opt-in for a self-signed local collector
+	if opts.CACert != "" {
+		pem, err := os.ReadFile(opts.CACert)
+		if err != nil {
+			slog.Error("otel: cannot read ca cert", "path", opts.CACert, "error", err)
+		} else {
+			pool, err := x509.SystemCertPool()
+			if err != nil || pool == nil {
+				pool = x509.NewCertPool()
+			}
+			if !pool.AppendCertsFromPEM(pem) {
+				slog.Error("otel: no certificate found in ca cert", "path", opts.CACert)
+			}
+			tlsCfg.RootCAs = pool
+		}
+	}
+	tr.TLSClientConfig = tlsCfg
+	return tr
 }
 
 // Export sends a trace entry as an OTLP span.
@@ -82,6 +129,9 @@ func (e *OTELExporter) Export(entry Entry) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range e.headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := e.client.Do(req)
 	if err != nil {
@@ -182,6 +232,13 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 		{Key: "policy.action", Value: strVal(entry.Policy)},
 		{Key: "policy.rule", Value: strVal(entry.PolicyRule)},
 		{Key: "http.status_code", Value: intVal(int64(entry.StatusCode))},
+		// OpenTelemetry GenAI semantic conventions, alongside our own keys: a
+		// dashboard built for any agent framework (Langfuse, Grafana's GenAI
+		// panels) recognises these without a mapping. One mesh call is one
+		// tool execution on behalf of an agent.
+		{Key: "gen_ai.operation.name", Value: strVal("execute_tool")},
+		{Key: "gen_ai.tool.name", Value: strVal(entry.Tool)},
+		{Key: "gen_ai.agent.id", Value: strVal(entry.AgentID)},
 	}
 
 	if entry.SessionID != "" {
@@ -211,6 +268,9 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 	if entry.EstimatedInputTokens > 0 {
 		attrs = append(attrs, otlpKV{Key: "llm.token.input", Value: intVal(int64(entry.EstimatedInputTokens))})
 		attrs = append(attrs, otlpKV{Key: "llm.token.output", Value: intVal(int64(entry.EstimatedOutputTokens))})
+		// Same figures under the GenAI convention names.
+		attrs = append(attrs, otlpKV{Key: "gen_ai.usage.input_tokens", Value: intVal(int64(entry.EstimatedInputTokens))})
+		attrs = append(attrs, otlpKV{Key: "gen_ai.usage.output_tokens", Value: intVal(int64(entry.EstimatedOutputTokens))})
 	}
 
 	status := otlpStatus{Code: 1} // OK
