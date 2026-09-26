@@ -27,6 +27,9 @@ func main() {
 		case "serve":
 			runServe(os.Args[2:])
 			return
+		case "trace":
+			runTrace(os.Args[2:])
+			return
 		}
 	}
 

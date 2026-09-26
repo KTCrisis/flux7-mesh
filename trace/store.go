@@ -66,6 +66,13 @@ type Entry struct {
 	EstimatedInputTokens  int    `json:"estimated_input_tokens,omitempty"`
 	EstimatedOutputTokens int    `json:"estimated_output_tokens,omitempty"`
 	TokensSource          string `json:"tokens_source,omitempty"` // "real" | "estimate"
+
+	// Revision counts the updates appended after the first record of this
+	// trace (approval outcome, backend status, latency). The file is
+	// append-only: an update is a new line carrying the whole entry with a
+	// higher revision, never a rewrite of the first one. On load, the
+	// highest revision of a trace ID wins.
+	Revision int `json:"revision,omitempty"`
 }
 
 // Store is a thread-safe trace store with optional JSONL file persistence.
@@ -83,6 +90,31 @@ type Store struct {
 
 	// OTEL exporter (nil = disabled)
 	OTEL *OTELExporter
+
+	// Hash chain over the file (see integrity.go). seq and prevHash carry
+	// on across rotations and restarts; key switches SHA-256 to HMAC.
+	seq      uint64
+	prevHash string
+	key      []byte
+}
+
+// SetKey turns the chain from plain SHA-256 into HMAC-SHA256 for every line
+// written from now on. Call it before the first Record.
+func (s *Store) SetKey(key []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(key) == 0 {
+		s.key = nil
+		return
+	}
+	s.key = append([]byte(nil), key...)
+}
+
+// Head returns the sequence number and hash of the last chained line.
+func (s *Store) Head() (uint64, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.seq, s.prevHash
 }
 
 // NewStore creates an in-memory trace store.
@@ -107,6 +139,15 @@ func NewPersistentStore(maxSize int, path string) (*Store, error) {
 	// Load existing entries from file
 	if err := s.loadFromFile(path); err != nil {
 		slog.Warn("trace: could not load existing traces", "path", path, "error", err)
+	}
+
+	// Resume the chain where it stopped: the current file, or the rotated
+	// one when the current file has no chained line yet.
+	for _, p := range []string{path, path + ".old"} {
+		if env, ok := lastEnvelope(p); ok {
+			s.seq, s.prevHash = env.Seq, env.Hash
+			break
+		}
 	}
 
 	// Open file for appending
@@ -157,22 +198,35 @@ func (s *Store) Record(e Entry) {
 		go s.OTEL.Export(e)
 	}
 
-	// Append to JSONL file
-	if s.writer != nil {
-		data, err := json.Marshal(e)
-		if err != nil {
-			slog.Error("trace: failed to marshal entry", "error", err)
-			return
-		}
-		n, _ := s.writer.Write(data)
-		s.writer.WriteByte('\n')
-		s.writer.Flush()
-		s.fileSize += int64(n + 1)
+	s.appendLocked(e)
+}
 
-		// Rotate if file exceeds max size
-		if s.maxFileSize > 0 && s.fileSize >= s.maxFileSize {
-			s.rotate()
-		}
+// appendLocked writes one entry as a JSONL line. Must be called with mu held.
+func (s *Store) appendLocked(e Entry) {
+	if s.writer == nil {
+		return
+	}
+	payload, err := json.Marshal(e)
+	if err != nil {
+		slog.Error("trace: failed to marshal entry", "error", err)
+		return
+	}
+	env := envelope{Seq: s.seq + 1, Alg: AlgSHA256, PrevHash: s.prevHash}
+	if s.key != nil {
+		env.Alg = AlgHMACSHA256
+	}
+	env.Hash = chainHash(s.key, env.Alg, env.Seq, env.PrevHash, payload)
+	data := sealLine(payload, env)
+	s.seq, s.prevHash = env.Seq, env.Hash
+
+	n, _ := s.writer.Write(data)
+	s.writer.WriteByte('\n')
+	s.writer.Flush()
+	s.fileSize += int64(n + 1)
+
+	// Rotate if file exceeds max size
+	if s.maxFileSize > 0 && s.fileSize >= s.maxFileSize {
+		s.rotate()
 	}
 }
 
@@ -338,7 +392,9 @@ func (s *Store) Chain(traceID string, maxDepth int) []Entry {
 	return chain
 }
 
-// Update finds a trace entry by TraceID and applies fn to mutate it.
+// Update finds a trace entry by TraceID and applies fn to mutate it, then
+// appends the updated entry to the file as a new revision: an approval
+// outcome that lived only in memory would vanish at the next restart.
 // Returns true if the entry was found and updated.
 func (s *Store) Update(traceID string, fn func(*Entry)) bool {
 	s.mu.Lock()
@@ -347,6 +403,8 @@ func (s *Store) Update(traceID string, fn func(*Entry)) bool {
 	for i := len(s.entries) - 1; i >= 0; i-- {
 		if s.entries[i].TraceID == traceID {
 			fn(&s.entries[i])
+			s.entries[i].Revision++
+			s.appendLocked(s.entries[i])
 			return true
 		}
 	}
@@ -438,6 +496,7 @@ func (s *Store) loadFromFile(path string) error {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	loaded := 0
+	pos := map[string]int{} // trace ID -> index in s.entries, to fold revisions
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -448,8 +507,16 @@ func (s *Store) loadFromFile(path string) error {
 			slog.Warn("trace: skipping malformed line", "error", err)
 			continue
 		}
-		s.entries = append(s.entries, e)
 		loaded++
+		// A revision replaces the latest entry of its trace ID, as Update
+		// did in memory. Revision 0 is always a new call: a client that
+		// propagates one traceparent across calls shares the trace ID.
+		if i, ok := pos[e.TraceID]; ok && e.Revision > 0 {
+			s.entries[i] = e
+			continue
+		}
+		pos[e.TraceID] = len(s.entries)
+		s.entries = append(s.entries, e)
 	}
 
 	// Apply max size limit
