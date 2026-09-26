@@ -68,8 +68,9 @@ commands:
 approve flags:
   --grant <duration>   Also open a temporal grant, so the same call does not
                        ask again (e.g. 30m, 1h). The grant records this
-                       approval as its origin, which is what makes
-                       "mesh why" able to answer later.
+                       approval as its origin, which is what lets
+                       GET /traces/{id}/why (and the console) walk back
+                       to this decision later.
   --tools <glob>       Tool pattern for that grant (default: the exact tool
                        approved). Widening it is deliberate.
 
