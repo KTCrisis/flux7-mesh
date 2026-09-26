@@ -488,3 +488,54 @@ func TestChainStopsOnCycle(t *testing.T) {
 		t.Fatalf("expected the walk to stop at the cycle, got %d entries", len(chain))
 	}
 }
+
+// An approval outcome set by Update must survive a restart: the file is
+// append-only, so the update is a new revision line folded back on load.
+func TestUpdateSurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "traces.jsonl")
+	s, err := NewPersistentStore(100, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Record(Entry{TraceID: "t1", AgentID: "bot", Tool: "pay", Policy: "human_approval"})
+	s.Record(Entry{TraceID: "t2", AgentID: "bot", Tool: "read", Policy: "allow"})
+	s.Update("t1", func(e *Entry) {
+		e.ApprovalStatus = "approved"
+		e.ApprovedBy = "marc"
+	})
+	s.Update("t1", func(e *Entry) { e.StatusCode = 200 })
+	s.Close()
+
+	s2, err := NewPersistentStore(100, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	got := s2.Query("", "", 10)
+	if len(got) != 2 {
+		t.Fatalf("entries = %d, want 2 (revisions folded)", len(got))
+	}
+	var t1 Entry
+	for _, e := range got {
+		if e.TraceID == "t1" {
+			t1 = e
+		}
+	}
+	if t1.ApprovalStatus != "approved" || t1.ApprovedBy != "marc" || t1.StatusCode != 200 || t1.Revision != 2 {
+		t.Errorf("t1 after restart = %+v", t1)
+	}
+}
+
+// Two calls sharing one propagated trace ID stay two entries after a restart.
+func TestSharedTraceIDNotFolded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "traces.jsonl")
+	s, _ := NewPersistentStore(100, path)
+	s.Record(Entry{TraceID: "shared", Tool: "a", Policy: "allow"})
+	s.Record(Entry{TraceID: "shared", Tool: "b", Policy: "allow"})
+	s.Close()
+	s2, _ := NewPersistentStore(100, path)
+	defer s2.Close()
+	if n := len(s2.Query("", "", 10)); n != 2 {
+		t.Errorf("entries = %d, want 2", n)
+	}
+}
