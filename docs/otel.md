@@ -25,7 +25,7 @@ Every span includes the following attributes:
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `service.name` | resource | Always `mesh7` |
+| `service.name` | resource | Always `flux7-mesh` |
 | `agent.id` | string | Agent identity (e.g. `claude`, `crewai-researcher`) |
 | `enduser.id` | string | The human the agent acted for, when the token carried one (`auth.jwt.user_claim`). OpenTelemetry semantic-convention key; absent on agent-only calls |
 | `session.id` | string | MCP session the call belongs to (when set) |
@@ -98,7 +98,7 @@ first, without an OTLP backend.
 The simplest mode — each line is a complete OTLP JSON export:
 
 ```yaml
-otel_endpoint: /home/user/mesh7/traces-otel.jsonl
+otel_endpoint: /home/user/flux7-mesh/traces-otel.jsonl
 ```
 
 Query with `jq`:
