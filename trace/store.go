@@ -211,9 +211,10 @@ func (s *Store) Record(e Entry) {
 		s.entries = s.entries[len(s.entries)-s.maxSize:]
 	}
 
-	// Export to OTEL (async to not block Record)
+	// Export to OTEL. Export never blocks: HTTP spans are queued and sent
+	// in batches, stdout and file writes are immediate.
 	if s.OTEL != nil {
-		go s.OTEL.Export(e)
+		s.OTEL.Export(e)
 	}
 
 	s.appendLocked(e)
