@@ -1785,3 +1785,25 @@ func TestTraceparentParentAndPropagation(t *testing.T) {
 		}
 	}
 }
+
+func TestTraceVerifyEndpoint(t *testing.T) {
+	path := t.TempDir() + "/traces.jsonl"
+	traces, err := trace.NewPersistentStore(100, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer traces.Close()
+	traces.Record(trace.Entry{Tool: "x", Policy: "allow"})
+	handler := NewHandler(registry.New(), policy.NewEngine(nil), traces)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, newLoopbackReq("GET", "/traces/verify", nil))
+	if w.Code != 200 {
+		t.Fatalf("status = %d body %s", w.Code, w.Body.String())
+	}
+	var st trace.ChainStatus
+	json.NewDecoder(w.Body).Decode(&st)
+	if !st.Persistent || st.Chained != 1 || st.Break != nil || st.Alg != trace.AlgSHA256 {
+		t.Errorf("status = %+v", st)
+	}
+}

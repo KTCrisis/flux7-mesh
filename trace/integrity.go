@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 )
 
 // Integrity envelope.
@@ -213,4 +214,37 @@ func lastEnvelope(path string) (envelope, bool) {
 		}
 	}
 	return last, found
+}
+
+// ChainStatus is what the control plane reports about the store's own file.
+type ChainStatus struct {
+	Persistent bool      `json:"persistent"` // false: in-memory store, nothing to verify
+	Files      []string  `json:"files,omitempty"`
+	HMAC       bool      `json:"hmac"` // the store holds a key, so lines are checked as HMAC
+	VerifiedAt time.Time `json:"verified_at"`
+	Report
+}
+
+// VerifyChain checks the store's trace file, preceded by its rotated file when
+// there is one. Writes are held for the duration so the last line is never
+// read half-written; a 10 MB file takes tens of milliseconds.
+func (s *Store) VerifyChain() (ChainStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	st := ChainStatus{VerifiedAt: time.Now().UTC(), HMAC: s.key != nil}
+	if s.filePath == "" {
+		return st, nil
+	}
+	st.Persistent = true
+	if s.writer != nil {
+		s.writer.Flush()
+	}
+	if _, err := os.Stat(s.filePath + ".old"); err == nil {
+		st.Files = append(st.Files, s.filePath+".old")
+	}
+	st.Files = append(st.Files, s.filePath)
+	r, err := Verify(st.Files, s.key)
+	st.Report = r
+	return st, err
 }
