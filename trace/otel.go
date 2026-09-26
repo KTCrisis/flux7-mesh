@@ -8,12 +8,26 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+// OTLP/HTTP delivery: spans wait in a bounded queue and leave in batches.
+// A full queue drops the newest span rather than block a tool call, and a
+// collector that is down costs a few retries, never the proxy.
+const (
+	otelQueueSize   = 2048
+	otelBatchSize   = 128
+	otelFlushEvery  = 2 * time.Second
+	otelMaxAttempts = 4 // 1 try + 3 retries
+	otelBackoffBase = 500 * time.Millisecond
+	otelCloseWait   = 5 * time.Second
 )
 
 // OTELExporter converts trace entries to OTLP JSON spans and exports them.
@@ -26,6 +40,17 @@ type OTELExporter struct {
 	// JSONL file output
 	file   *os.File
 	fileMu sync.Mutex
+
+	// OTLP/HTTP queue (nil unless the endpoint is http(s))
+	queue     chan otlpSpan
+	done      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
+	backoff   time.Duration
+
+	sent    atomic.Int64
+	dropped atomic.Int64
+	failed  atomic.Int64
 }
 
 // OTELOptions tunes the HTTP transport of an exporter. The zero value is the
@@ -51,6 +76,14 @@ func NewOTELExporterWithOptions(endpoint string, opts OTELOptions) *OTELExporter
 		client:   &http.Client{Timeout: 5 * time.Second, Transport: otelTransport(opts)},
 		service:  "flux7-mesh",
 		headers:  opts.Headers,
+	}
+
+	if isHTTP(endpoint) {
+		exp.queue = make(chan otlpSpan, otelQueueSize)
+		exp.done = make(chan struct{})
+		exp.stopped = make(chan struct{})
+		exp.backoff = otelBackoffBase
+		go exp.run()
 	}
 
 	// If not stdout and not http, treat as file path
@@ -98,10 +131,24 @@ func otelTransport(opts OTELOptions) http.RoundTripper {
 	return tr
 }
 
-// Export sends a trace entry as an OTLP span.
+// Export sends a trace entry as an OTLP span: written at once to stdout or a
+// file, queued for a batched POST to an OTLP/HTTP collector. Never blocks.
 func (e *OTELExporter) Export(entry Entry) {
-	span := e.toOTLP(entry)
-	data, err := json.Marshal(span)
+	export := e.toOTLP(entry)
+
+	if e.queue != nil {
+		span := export.ResourceSpans[0].ScopeSpans[0].Spans[0]
+		select {
+		case e.queue <- span:
+		default:
+			if n := e.dropped.Add(1); n == 1 || n%100 == 0 {
+				slog.Warn("otel: queue full, span dropped", "dropped_total", n)
+			}
+		}
+		return
+	}
+
+	data, err := json.Marshal(export)
 	if err != nil {
 		slog.Error("otel: marshal failed", "error", err)
 		return
@@ -118,29 +165,127 @@ func (e *OTELExporter) Export(entry Entry) {
 		e.file.Write(data)
 		e.file.Write([]byte("\n"))
 		e.fileMu.Unlock()
+	}
+}
+
+// run batches queued spans: a batch leaves when full or every otelFlushEvery.
+// On Close it drains the queue and sends what is left.
+func (e *OTELExporter) run() {
+	defer close(e.stopped)
+	tick := time.NewTicker(otelFlushEvery)
+	defer tick.Stop()
+	batch := make([]otlpSpan, 0, otelBatchSize)
+	flush := func() {
+		if len(batch) > 0 {
+			e.send(batch)
+			batch = make([]otlpSpan, 0, otelBatchSize)
+		}
+	}
+	for {
+		select {
+		case sp := <-e.queue:
+			batch = append(batch, sp)
+			if len(batch) >= otelBatchSize {
+				flush()
+			}
+		case <-tick.C:
+			flush()
+		case <-e.done:
+			for {
+				select {
+				case sp := <-e.queue:
+					batch = append(batch, sp)
+					if len(batch) >= otelBatchSize {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
+			}
+		}
+	}
+}
+
+// send POSTs one batch, retrying network errors, 429 and 5xx with
+// exponential backoff. Other 4xx mean the collector refuses the payload:
+// retrying would not change its mind. During Close there is no backoff.
+func (e *OTELExporter) send(spans []otlpSpan) {
+	data, err := json.Marshal(e.wrap(spans))
+	if err != nil {
+		slog.Error("otel: marshal failed", "error", err)
 		return
 	}
-
-	// OTLP HTTP
 	url := e.endpoint + "/v1/traces"
-	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
-	if err != nil {
-		slog.Error("otel: request failed", "error", err)
-		return
+	var last string
+	for attempt := 0; attempt < otelMaxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-e.done:
+				// shutting down: one immediate try each, no waiting
+			case <-time.After(e.backoff << (attempt - 1)):
+			}
+		}
+		req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+		if err != nil {
+			slog.Error("otel: request failed", "error", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range e.headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := e.client.Do(req)
+		if err != nil {
+			last = err.Error()
+			continue
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		switch {
+		case resp.StatusCode < 300:
+			e.sent.Add(int64(len(spans)))
+			return
+		case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+			last = resp.Status
+			continue
+		default:
+			e.failed.Add(int64(len(spans)))
+			slog.Warn("otel: export rejected", "endpoint", url, "status", resp.StatusCode, "spans", len(spans))
+			return
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range e.headers {
-		req.Header.Set(k, v)
-	}
+	e.failed.Add(int64(len(spans)))
+	slog.Warn("otel: export failed after retries", "endpoint", url, "error", last, "spans", len(spans))
+}
 
-	resp, err := e.client.Do(req)
-	if err != nil {
-		slog.Warn("otel: export failed", "endpoint", url, "error", err)
-		return
-	}
-	resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		slog.Warn("otel: export rejected", "status", resp.StatusCode)
+// OTELStats counts spans by outcome, for the metrics endpoint and tests.
+type OTELStats struct {
+	Sent    int64 `json:"sent"`
+	Dropped int64 `json:"dropped"` // queue full
+	Failed  int64 `json:"failed"`  // rejected or out of retries
+	Queued  int   `json:"queued"`
+}
+
+// Stats returns delivery counters. Zero for stdout and file exporters.
+func (e *OTELExporter) Stats() OTELStats {
+	return OTELStats{Sent: e.sent.Load(), Dropped: e.dropped.Load(), Failed: e.failed.Load(), Queued: len(e.queue)}
+}
+
+// wrap puts spans under one resource and scope.
+func (e *OTELExporter) wrap(spans []otlpSpan) otlpExport {
+	return otlpExport{
+		ResourceSpans: []otlpResourceSpan{{
+			Resource: otlpResource{
+				Attributes: []otlpKV{
+					{Key: "service.name", Value: strVal(e.service)},
+				},
+			},
+			ScopeSpans: []otlpScopeSpan{{
+				Scope: otlpScope{Name: "flux7-mesh", Version: "0.6.0"},
+				Spans: spans,
+			}},
+		}},
 	}
 }
 
@@ -216,13 +361,23 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 	// span addressable from its trace ID alone, which is what parentSpanId below
 	// needs. Entropy is unchanged: the trace ID is already 16 random bytes.
 	spanID := spanIDFor(traceID)
+	if len(entry.SpanID) == 16 && isHex(entry.SpanID) {
+		spanID = entry.SpanID
+	}
 
 	// A grant that recorded its origin makes the authorizing call the parent of
 	// every call it later waves through. This is the one causal edge a proxy can
 	// observe without being told: the agent's reasoning stays invisible, but the
 	// chain of authority does not.
+	//
+	// A caller that sent a traceparent names its own span as the parent, and
+	// that edge wins: it keeps the caller's tree whole (behind Kong, an SDK,
+	// another mesh). The store resolves grant lineage into ParentSpanID too
+	// when the originating call is still in memory.
 	parentSpanID := ""
-	if entry.ParentTraceID != "" && len(entry.ParentTraceID) == 32 && isHex(entry.ParentTraceID) {
+	if len(entry.ParentSpanID) == 16 && isHex(entry.ParentSpanID) {
+		parentSpanID = entry.ParentSpanID
+	} else if entry.ParentTraceID != "" && len(entry.ParentTraceID) == 32 && isHex(entry.ParentTraceID) {
 		parentSpanID = spanIDFor(entry.ParentTraceID)
 	}
 
@@ -320,23 +475,22 @@ func EntriesToOTLP(entries []Entry, service string) any {
 		}
 	}
 
-	return otlpExport{
-		ResourceSpans: []otlpResourceSpan{{
-			Resource: otlpResource{
-				Attributes: []otlpKV{
-					{Key: "service.name", Value: strVal(service)},
-				},
-			},
-			ScopeSpans: []otlpScopeSpan{{
-				Scope: otlpScope{Name: "flux7-mesh", Version: "0.6.0"},
-				Spans: spans,
-			}},
-		}},
-	}
+	return exp.wrap(spans)
 }
 
-// Close flushes and closes the OTEL file if any.
+// Close sends the queued spans (bounded by otelCloseWait) and closes the
+// file, if any. Safe to call more than once.
 func (e *OTELExporter) Close() error {
+	if e.queue != nil {
+		e.closeOnce.Do(func() { close(e.done) })
+		select {
+		case <-e.stopped:
+		case <-time.After(otelCloseWait):
+			slog.Warn("otel: close timed out, spans left in queue", "queued", len(e.queue))
+		}
+		st := e.Stats()
+		slog.Info("otel: exporter closed", "sent", st.Sent, "dropped", st.Dropped, "failed", st.Failed)
+	}
 	if e.file != nil {
 		return e.file.Close()
 	}

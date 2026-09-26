@@ -198,10 +198,8 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 401, map[string]string{"error": "authentication required"})
 		return
 	}
-	traceID := extractTraceID(r)
-	if traceID == "" {
-		traceID = trace.NewID()
-	}
+	tc := trace.NewContext(r.Header.Get("Traceparent"), r.Header.Get("X-Trace-Id"))
+	traceID := tc.TraceID
 	sessionID := extractSessionID(r)
 	start := time.Now()
 
@@ -229,16 +227,18 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		preDecision := h.Policy.Evaluate(agentID, toolName, req.Params)
 		if err := h.RateLimiter.Check(agentID, preDecision.Rule, toolName, paramsKey); err != nil {
 			entry := trace.Entry{
-				TraceID:    traceID,
-				SessionID:  sessionID,
-				AgentID:    agentID,
-				UserID:     userID,
-				Tool:       toolName,
-				Params:     req.Params,
-				Policy:     "rate_limited",
-				PolicyRule: preDecision.Rule,
-				LatencyMs:  time.Since(start).Milliseconds(),
-				Error:      err.Error(),
+				TraceID:      traceID,
+				SpanID:       tc.SpanID,
+				ParentSpanID: tc.ParentSpanID,
+				SessionID:    sessionID,
+				AgentID:      agentID,
+				UserID:       userID,
+				Tool:         toolName,
+				Params:       req.Params,
+				Policy:       "rate_limited",
+				PolicyRule:   preDecision.Rule,
+				LatencyMs:    time.Since(start).Milliseconds(),
+				Error:        err.Error(),
 			}
 			h.Traces.Record(entry)
 			writeJSON(w, 429, ToolCallResponse{
@@ -259,15 +259,17 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 
 	if decision.Action == "deny" {
 		entry := trace.Entry{
-			TraceID:    traceID,
-			SessionID:  sessionID,
-			AgentID:    agentID,
-			UserID:     userID,
-			Tool:       toolName,
-			Params:     req.Params,
-			Policy:     "deny",
-			PolicyRule: decision.Rule,
-			LatencyMs:  time.Since(start).Milliseconds(),
+			TraceID:      traceID,
+			SpanID:       tc.SpanID,
+			ParentSpanID: tc.ParentSpanID,
+			SessionID:    sessionID,
+			AgentID:      agentID,
+			UserID:       userID,
+			Tool:         toolName,
+			Params:       req.Params,
+			Policy:       "deny",
+			PolicyRule:   decision.Rule,
+			LatencyMs:    time.Since(start).Milliseconds(),
 		}
 		h.Traces.Record(entry)
 		writeJSON(w, 403, ToolCallResponse{
@@ -310,15 +312,17 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		if h.Approvals == nil {
 			// Fallback: no approval store configured
 			entry := trace.Entry{
-				TraceID:    traceID,
-				SessionID:  sessionID,
-				AgentID:    agentID,
-				UserID:     userID,
-				Tool:       toolName,
-				Params:     req.Params,
-				Policy:     "human_approval",
-				PolicyRule: decision.Rule,
-				LatencyMs:  time.Since(start).Milliseconds(),
+				TraceID:      traceID,
+				SpanID:       tc.SpanID,
+				ParentSpanID: tc.ParentSpanID,
+				SessionID:    sessionID,
+				AgentID:      agentID,
+				UserID:       userID,
+				Tool:         toolName,
+				Params:       req.Params,
+				Policy:       "human_approval",
+				PolicyRule:   decision.Rule,
+				LatencyMs:    time.Since(start).Milliseconds(),
 			}
 			h.Traces.Record(entry)
 			writeJSON(w, 202, ToolCallResponse{
@@ -333,15 +337,17 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 		pending := h.Approvals.SubmitWithTrace(agentID, toolName, decision.Rule, req.Params, callbackURL, traceID)
 
 		entry := trace.Entry{
-			TraceID:    traceID,
-			SessionID:  sessionID,
-			AgentID:    agentID,
-			UserID:     userID,
-			Tool:       toolName,
-			Params:     req.Params,
-			Policy:     "human_approval",
-			PolicyRule: decision.Rule,
-			ApprovalID: pending.ID,
+			TraceID:      traceID,
+			SpanID:       tc.SpanID,
+			ParentSpanID: tc.ParentSpanID,
+			SessionID:    sessionID,
+			AgentID:      agentID,
+			UserID:       userID,
+			Tool:         toolName,
+			Params:       req.Params,
+			Policy:       "human_approval",
+			PolicyRule:   decision.Rule,
+			ApprovalID:   pending.ID,
 		}
 		h.Traces.Record(entry)
 
@@ -365,7 +371,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 			if h.RateLimiter != nil {
 				h.RateLimiter.Record(agentID, toolName, fmt.Sprintf("%v", req.Params))
 			}
-			result, statusCode, err := h.Forward(tool, req.Params, traceID)
+			result, statusCode, err := h.Forward(tool, req.Params, tc)
 			totalMs := time.Since(start).Milliseconds()
 			inTok, outTok, tokSrc := resolveTokens(toolName, req.Params, result)
 			h.Traces.Update(entry.TraceID, func(e *trace.Entry) {
@@ -419,13 +425,15 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 6. Forward to backend
-	result, statusCode, err := h.Forward(tool, req.Params, traceID)
+	result, statusCode, err := h.Forward(tool, req.Params, tc)
 	latency := time.Since(start).Milliseconds()
 	inTok, outTok, tokSrc := resolveTokens(toolName, req.Params, result)
 
 	// 5. Trace
 	entry := trace.Entry{
 		TraceID:               traceID,
+		SpanID:                tc.SpanID,
+		ParentSpanID:          tc.ParentSpanID,
 		SessionID:             sessionID,
 		AgentID:               agentID,
 		UserID:                userID,
@@ -506,10 +514,8 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	traceID := extractTraceID(r)
-	if traceID == "" {
-		traceID = trace.NewID()
-	}
+	tc := trace.NewContext(r.Header.Get("Traceparent"), r.Header.Get("X-Trace-Id"))
+	traceID := tc.TraceID
 	sessionID := extractSessionID(r)
 	start := time.Now()
 
@@ -536,6 +542,8 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 
 	entry := trace.Entry{
 		TraceID:       traceID,
+		SpanID:        tc.SpanID,
+		ParentSpanID:  tc.ParentSpanID,
 		SessionID:     sessionID,
 		AgentID:       agentID,
 		UserID:        userID,
@@ -565,20 +573,21 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 }
 
 // Forward sends the request to the appropriate backend (HTTP, MCP, or CLI).
-// traceID is propagated to HTTP backends via Traceparent and X-Trace-Id headers.
-func (h *Handler) Forward(tool *registry.Tool, params map[string]any, traceID string) (any, int, error) {
+// The trace context is propagated to HTTP backends via Traceparent (the mesh
+// span as parent) and X-Trace-Id headers.
+func (h *Handler) Forward(tool *registry.Tool, params map[string]any, tc trace.Context) (any, int, error) {
 	switch tool.Source {
 	case "mcp":
 		return h.forwardMCP(tool, params)
 	case "cli":
 		return h.forwardCLI(tool, params)
 	default:
-		return h.forwardHTTP(tool, params, traceID)
+		return h.forwardHTTP(tool, params, tc)
 	}
 }
 
 // forwardHTTP sends the request to a REST backend.
-func (h *Handler) forwardHTTP(tool *registry.Tool, params map[string]any, traceID string) (any, int, error) {
+func (h *Handler) forwardHTTP(tool *registry.Tool, params map[string]any, tc trace.Context) (any, int, error) {
 	// Build URL with path params (URL-encoded)
 	reqURL := tool.BaseURL + tool.Path
 	for k, v := range params {
@@ -619,9 +628,9 @@ func (h *Handler) forwardHTTP(tool *registry.Tool, params map[string]any, traceI
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if traceID != "" {
-		req.Header.Set("X-Trace-Id", traceID)
-		req.Header.Set("Traceparent", fmt.Sprintf("00-%s-0000000000000000-01", traceID))
+	if tc.TraceID != "" {
+		req.Header.Set("X-Trace-Id", tc.TraceID)
+		req.Header.Set("Traceparent", tc.Traceparent())
 	}
 	for k, v := range tool.Headers {
 		req.Header.Set(k, v)
@@ -852,33 +861,6 @@ func (h *Handler) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, h.Traces.QueryBySession(sessionID, limit))
-}
-
-// extractTraceID reads a trace ID from incoming headers.
-// Supports W3C Traceparent (extracts trace-id field) and X-Trace-Id.
-// Returns empty string if none provided (trace store will generate one).
-func extractTraceID(r *http.Request) string {
-	// W3C Traceparent: "00-<trace-id>-<parent-id>-<flags>"
-	if tp := r.Header.Get("Traceparent"); tp != "" {
-		parts := strings.Split(tp, "-")
-		if len(parts) >= 2 && len(parts[1]) == 32 {
-			return parts[1]
-		}
-	}
-	// Fallback: X-Trace-Id header (must be 32 hex chars per W3C)
-	if id := r.Header.Get("X-Trace-Id"); len(id) == 32 && isHexString(id) {
-		return id
-	}
-	return ""
-}
-
-func isHexString(s string) bool {
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
 }
 
 // extractSessionID reads an optional session ID from the X-Session-Id header.
