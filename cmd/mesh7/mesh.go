@@ -92,8 +92,19 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		if err != nil {
 			return nil, fmt.Errorf("open trace file %s: %w", cfg.TraceFile, err)
 		}
-		m.closers = append(m.closers, func() { m.traces.Close() })
-		slog.Info("trace store ready", "file", cfg.TraceFile)
+		// MESH_TRACE_KEY turns the trace hash chain into an HMAC chain:
+		// without the key, nobody can rewrite the file and recompute it.
+		if k := os.Getenv("MESH_TRACE_KEY"); k != "" {
+			m.traces.SetKey([]byte(k))
+		}
+		// The head hash in the service log is an anchor outside the file:
+		// it is what reveals a truncated tail.
+		logHead := func(msg string) {
+			seq, head := m.traces.Head()
+			slog.Info(msg, "file", cfg.TraceFile, "seq", seq, "head", head, "hmac", os.Getenv("MESH_TRACE_KEY") != "")
+		}
+		m.closers = append(m.closers, func() { logHead("trace chain closed"); m.traces.Close() })
+		logHead("trace store ready")
 	} else {
 		m.traces = trace.NewStore(10000)
 		slog.Info("trace store ready", "mode", "in-memory")

@@ -90,6 +90,31 @@ type Store struct {
 
 	// OTEL exporter (nil = disabled)
 	OTEL *OTELExporter
+
+	// Hash chain over the file (see integrity.go). seq and prevHash carry
+	// on across rotations and restarts; key switches SHA-256 to HMAC.
+	seq      uint64
+	prevHash string
+	key      []byte
+}
+
+// SetKey turns the chain from plain SHA-256 into HMAC-SHA256 for every line
+// written from now on. Call it before the first Record.
+func (s *Store) SetKey(key []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(key) == 0 {
+		s.key = nil
+		return
+	}
+	s.key = append([]byte(nil), key...)
+}
+
+// Head returns the sequence number and hash of the last chained line.
+func (s *Store) Head() (uint64, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.seq, s.prevHash
 }
 
 // NewStore creates an in-memory trace store.
@@ -114,6 +139,15 @@ func NewPersistentStore(maxSize int, path string) (*Store, error) {
 	// Load existing entries from file
 	if err := s.loadFromFile(path); err != nil {
 		slog.Warn("trace: could not load existing traces", "path", path, "error", err)
+	}
+
+	// Resume the chain where it stopped: the current file, or the rotated
+	// one when the current file has no chained line yet.
+	for _, p := range []string{path, path + ".old"} {
+		if env, ok := lastEnvelope(p); ok {
+			s.seq, s.prevHash = env.Seq, env.Hash
+			break
+		}
 	}
 
 	// Open file for appending
@@ -172,11 +206,19 @@ func (s *Store) appendLocked(e Entry) {
 	if s.writer == nil {
 		return
 	}
-	data, err := json.Marshal(e)
+	payload, err := json.Marshal(e)
 	if err != nil {
 		slog.Error("trace: failed to marshal entry", "error", err)
 		return
 	}
+	env := envelope{Seq: s.seq + 1, Alg: AlgSHA256, PrevHash: s.prevHash}
+	if s.key != nil {
+		env.Alg = AlgHMACSHA256
+	}
+	env.Hash = chainHash(s.key, env.Alg, env.Seq, env.PrevHash, payload)
+	data := sealLine(payload, env)
+	s.seq, s.prevHash = env.Seq, env.Hash
+
 	n, _ := s.writer.Write(data)
 	s.writer.WriteByte('\n')
 	s.writer.Flush()
