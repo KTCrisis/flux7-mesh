@@ -46,6 +46,16 @@ reason), 2 on usage or I/O error. With `MESH_TRACE_KEY` set, every chained
 line must be HMAC. Lines written before the chain existed are counted as
 `unchained` when they precede it, and are a break when they appear inside it.
 
+### Over the control plane
+
+`GET /traces/verify` runs the same check on the running store's file (and its
+`.old`), with the store's own key, and returns the report as JSON:
+`persistent`, `files`, `hmac`, `verified_at`, then `lines`, `chained`,
+`unchained`, `first_seq`, `last_seq`, `anchor`, `head`, `alg` and `break`
+when there is one. A broken chain is still a `200`: the report is the answer.
+Like every control-plane route it needs the admin token, or loopback. Writes
+wait while the file is read (tens of milliseconds for 10 MB).
+
 ## Limits
 
 - **Truncated tail.** Deleting the last lines leaves a valid, shorter chain.

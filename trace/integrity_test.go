@@ -174,3 +174,30 @@ func TestChainedRevisionsLoad(t *testing.T) {
 		t.Fatalf("loaded = %+v", got)
 	}
 }
+
+func TestVerifyChainOnStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "traces.jsonl")
+	s, _ := NewPersistentStore(100, path)
+	s.SetKey(testKey)
+	s.Record(Entry{Tool: "a", Policy: "allow"})
+	s.Record(Entry{Tool: "b", Policy: "allow"})
+
+	st, err := s.VerifyChain()
+	if err != nil || !st.Persistent || !st.HMAC || st.Break != nil || st.Chained != 2 {
+		t.Fatalf("status = %+v err=%v", st, err)
+	}
+
+	// Tamper behind the store's back: the next check sees it.
+	ls := lines(t, path)
+	ls[0] = bytes.Replace(ls[0], []byte(`"tool":"a"`), []byte(`"tool":"z"`), 1)
+	rewrite(t, path, ls)
+	if st, _ := s.VerifyChain(); st.Break == nil || st.Break.Line != 1 {
+		t.Fatalf("tampered: %+v", st.Break)
+	}
+	s.Close()
+
+	mem, _ := NewStore(10).VerifyChain()
+	if mem.Persistent {
+		t.Error("in-memory store reported as persistent")
+	}
+}

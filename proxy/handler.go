@@ -104,6 +104,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Control plane: operator actions, require admin auth ---
 	case r.Method == "GET" && r.URL.Path == "/traces":
 		h.admin(r, w, h.handleTraces)
+	case r.Method == "GET" && r.URL.Path == "/traces/verify":
+		h.admin(r, w, h.handleTraceVerify)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/traces/") && strings.HasSuffix(r.URL.Path, "/why"):
 		h.admin(r, w, h.handleTraceWhy)
 	case r.Method == "GET" && r.URL.Path == "/otel-traces":
@@ -707,6 +709,18 @@ func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, h.Registry.All())
+}
+
+// handleTraceVerify walks the hash chain of the trace file and reports the
+// first break, if any. A broken chain is still a 200: the report is the
+// answer, and the caller decides what a break means.
+func (h *Handler) handleTraceVerify(w http.ResponseWriter, r *http.Request) {
+	st, err := h.Traces.VerifyChain()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, st)
 }
 
 func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
