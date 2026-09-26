@@ -51,6 +51,12 @@ type Entry struct {
 	GrantID       string `json:"grant_id,omitempty"`
 	ParentTraceID string `json:"parent_trace_id,omitempty"`
 
+	// W3C span of this call, and the caller's span when the request carried a
+	// traceparent. Empty on entries recorded before they existed: the OTLP
+	// export then derives the span from the trace ID.
+	SpanID       string `json:"span_id,omitempty"`
+	ParentSpanID string `json:"parent_span_id,omitempty"`
+
 	// Approval fields (populated when policy = human_approval)
 	ApprovalID     string `json:"approval_id,omitempty"`
 	ApprovalStatus string `json:"approval_status,omitempty"` // approved, denied, timeout
@@ -185,6 +191,18 @@ func (s *Store) Record(e Entry) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Grant lineage: the parent is the call that motivated the grant. When
+	// that call joined a caller's trace its span is random, so it is looked
+	// up rather than derived. A traceparent parent, if any, takes precedence.
+	if e.ParentTraceID != "" && e.ParentSpanID == "" {
+		for i := len(s.entries) - 1; i >= 0; i-- {
+			if s.entries[i].TraceID == e.ParentTraceID {
+				e.ParentSpanID = s.entries[i].SpanID
+				break
+			}
+		}
+	}
 
 	s.entries = append(s.entries, e)
 

@@ -1739,3 +1739,49 @@ func TestApprovalViewExposesTraceID(t *testing.T) {
 		t.Errorf("trace_id = %v, want the trace of the awaiting call", view["trace_id"])
 	}
 }
+
+// The caller's span is the parent of the mesh span, the backend receives the
+// mesh span as its parent (never an all-zero ID), and two calls sharing one
+// caller trace get distinct spans.
+func TestTraceparentParentAndPropagation(t *testing.T) {
+	var seen []string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Traceparent"))
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	t.Cleanup(backend.Close)
+	reg := registry.New()
+	reg.LoadManual(&registry.Tool{Name: "get_pet", Method: "GET", Path: "/pet/1", BaseURL: backend.URL, Source: "openapi"})
+	pol := policy.NewEngine([]config.Policy{{Name: "allow-all", Agent: "*", Rules: []config.Rule{{Tools: []string{"*"}, Action: "allow"}}}})
+	traces := trace.NewStore(100)
+	handler := NewHandler(reg, pol, traces)
+
+	const tid, caller = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
+	for i := 0; i < 2; i++ {
+		req := newLoopbackReq("POST", "/tool/get_pet", strings.NewReader(`{"params":{}}`))
+		req.Header.Set("Traceparent", "00-"+tid+"-"+caller+"-01")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != 200 {
+			t.Fatalf("status = %d", w.Code)
+		}
+	}
+	entries := traces.Query("", "get_pet", 10)
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d", len(entries))
+	}
+	if entries[0].SpanID == entries[1].SpanID {
+		t.Errorf("both calls got span %q", entries[0].SpanID)
+	}
+	for i, e := range entries {
+		if e.TraceID != tid || e.ParentSpanID != caller {
+			t.Errorf("entry %d = trace %q parent %q", i, e.TraceID, e.ParentSpanID)
+		}
+	}
+	for _, h := range seen {
+		_, parent, ok := trace.ParseTraceparent(h)
+		if !ok || parent == caller {
+			t.Errorf("backend traceparent = %q, want the mesh span as parent", h)
+		}
+	}
+}

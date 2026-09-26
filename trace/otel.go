@@ -216,13 +216,23 @@ func (e *OTELExporter) toOTLP(entry Entry) otlpExport {
 	// span addressable from its trace ID alone, which is what parentSpanId below
 	// needs. Entropy is unchanged: the trace ID is already 16 random bytes.
 	spanID := spanIDFor(traceID)
+	if len(entry.SpanID) == 16 && isHex(entry.SpanID) {
+		spanID = entry.SpanID
+	}
 
 	// A grant that recorded its origin makes the authorizing call the parent of
 	// every call it later waves through. This is the one causal edge a proxy can
 	// observe without being told: the agent's reasoning stays invisible, but the
 	// chain of authority does not.
+	//
+	// A caller that sent a traceparent names its own span as the parent, and
+	// that edge wins: it keeps the caller's tree whole (behind Kong, an SDK,
+	// another mesh). The store resolves grant lineage into ParentSpanID too
+	// when the originating call is still in memory.
 	parentSpanID := ""
-	if entry.ParentTraceID != "" && len(entry.ParentTraceID) == 32 && isHex(entry.ParentTraceID) {
+	if len(entry.ParentSpanID) == 16 && isHex(entry.ParentSpanID) {
+		parentSpanID = entry.ParentSpanID
+	} else if entry.ParentTraceID != "" && len(entry.ParentTraceID) == 32 && isHex(entry.ParentTraceID) {
 		parentSpanID = spanIDFor(entry.ParentTraceID)
 	}
 
