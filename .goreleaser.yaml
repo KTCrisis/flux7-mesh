@@ -54,6 +54,11 @@ archives:
     # No version in the name, so releases/latest/download/<name> always
     # resolves without asking the GitHub API which version is latest.
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - install.sh
+      - contrib/systemd/mesh7.service
 
 checksum:
   name_template: "checksums.txt"
