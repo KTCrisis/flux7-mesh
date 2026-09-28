@@ -804,7 +804,10 @@ func (h *Handler) handleToolDecisions(w http.ResponseWriter, r *http.Request) {
 	for _, t := range tools {
 		sd := h.Policy.Explain(agent, t.Name)
 		floor := h.Floor(t)
-		sd.Action = policy.Tighten(policy.Decision{Action: sd.Action}, floor).Action
+		// Same floors, same rule names as a real call: a pin that overrides
+		// the policy shows as pin:new or pin:changed, not as the policy.
+		fd := h.ApplyFloors(policy.Decision{Action: sd.Action, Rule: sd.Rule}, t)
+		sd.Action, sd.Rule = fd.Action, fd.Rule
 		for i := range sd.Conditional {
 			sd.Conditional[i].Action = policy.Tighten(policy.Decision{Action: sd.Conditional[i].Action}, floor).Action
 		}
