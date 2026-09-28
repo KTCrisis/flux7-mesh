@@ -35,7 +35,7 @@ ttyd -i 127.0.0.1 -p "${TTYD_PORT:-7691}" -W -o \
   -t 'theme={"background":"#0a0e13","foreground":"#c8d4df","cursor":"#62d6e0"}' \
   env MESH7="$MESH7" bash --noprofile --rcfile "$HERE/out/shell.rc" > out/ttyd.log 2>&1 &
 TTYD=$!
-trap 'kill $TTYD 2>/dev/null; "$DEMO/run.sh" stop >/dev/null' EXIT
+trap 'kill $TTYD 2>/dev/null || true; "$DEMO/run.sh" stop >/dev/null' EXIT
 sleep 1
 
 TERM_URL="http://127.0.0.1:${TTYD_PORT:-7691}" node record.mjs "$SCENE"
