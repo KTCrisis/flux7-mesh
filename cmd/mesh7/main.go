@@ -61,12 +61,23 @@ func main() {
 			if *port > 0 {
 				p = *port
 			}
-			if daemonRunning(p) {
-				if err := runStdioProxy(p, *mcpAgent); err != nil {
-					slog.Error("proxy failed", "error", err)
+			if running, theirs := daemonOnPort(p); running {
+				ok, warn, err := proxyDecision(configID(*configPath), theirs, p)
+				if err != nil {
+					slog.Error("mesh7 --mcp", "error", err)
+					fmt.Fprintln(os.Stderr, "mesh7:", err)
 					os.Exit(1)
 				}
-				return
+				if warn != "" {
+					slog.Warn(warn, "port", p)
+				}
+				if ok {
+					if err := runStdioProxy(p, *mcpAgent); err != nil {
+						slog.Error("proxy failed", "error", err)
+						os.Exit(1)
+					}
+					return
+				}
 			}
 		}
 	}

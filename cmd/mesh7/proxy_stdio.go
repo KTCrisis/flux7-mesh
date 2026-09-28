@@ -3,22 +3,70 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
-func daemonRunning(port int) bool {
+// configID names a config file without disclosing it: a short hash of its
+// absolute path. Two processes serve the same config when their IDs match.
+// Empty for an empty path (mesh7 started from --openapi alone).
+func configID(path string) string {
+	if path == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return hex.EncodeToString(sum[:8])
+}
+
+// daemonOnPort reports whether a mesh7 daemon answers on port, and the ID of
+// the config it serves ("" when the daemon predates the field).
+func daemonOnPort(port int) (running bool, config string) {
 	c := &http.Client{Timeout: 2 * time.Second}
 	resp, err := c.Get(fmt.Sprintf("http://localhost:%d/health", port))
 	if err != nil {
-		return false
+		return false, ""
 	}
-	resp.Body.Close()
-	return resp.StatusCode == 200
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false, ""
+	}
+	var h struct {
+		Config string `json:"config"`
+	}
+	json.NewDecoder(resp.Body).Decode(&h)
+	return true, h.Config
+}
+
+// proxyDecision says whether `mesh7 --mcp` may relay to the daemon it found.
+// It refuses a daemon serving another config: relaying would hand this
+// project's agent that daemon's tools and policy, silently. Running in
+// process instead would not work either: the approval API port is taken,
+// and `mesh approve` would reach the other process.
+func proxyDecision(mine, theirs string, port int) (ok bool, warn string, err error) {
+	switch {
+	case theirs == "":
+		return true, "daemon does not report its config (older than v0.17.1): relaying without checking it serves this one", nil
+	case theirs == mine:
+		return true, "", nil
+	default:
+		return false, "", fmt.Errorf("a mesh7 daemon on port %d serves another config; not relaying to it. "+
+			"Give this config its own `port:`, or stop that daemon", port)
+	}
 }
 
 func runStdioProxy(port int, agentID string) error {

@@ -6,27 +6,65 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestDaemonRunningNoServer(t *testing.T) {
-	if daemonRunning(19999) {
+func TestDaemonOnPortNoServer(t *testing.T) {
+	if running, _ := daemonOnPort(19999); running {
 		t.Error("expected false when no server is listening")
 	}
 }
 
-func TestDaemonRunningWithServer(t *testing.T) {
+func TestDaemonOnPortReportsConfig(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte(`{"status":"ok"}`))
+		w.Write([]byte(`{"status":"ok","config":"abc123"}`))
 	}))
 	defer srv.Close()
 
 	var port int
 	fmt.Sscanf(srv.URL, "http://127.0.0.1:%d", &port)
-	if !daemonRunning(port) {
-		t.Error("expected true when server is listening")
+	running, cfg := daemonOnPort(port)
+	if !running || cfg != "abc123" {
+		t.Errorf("daemonOnPort = %v, %q; want true, abc123", running, cfg)
+	}
+}
+
+func TestConfigIDSamePathSameID(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "config.yaml")
+	os.WriteFile(a, []byte("port: 1\n"), 0o644)
+	link := filepath.Join(dir, "link.yaml")
+	os.Symlink(a, link)
+	wd, _ := os.Getwd()
+	defer os.Chdir(wd)
+	os.Chdir(dir)
+
+	if configID(a) != configID("config.yaml") {
+		t.Error("relative and absolute paths to one file must give one ID")
+	}
+	if configID(a) != configID(link) {
+		t.Error("a symlink to the file must give the same ID")
+	}
+	if configID(a) == configID(filepath.Join(dir, "other.yaml")) {
+		t.Error("two files must give two IDs")
+	}
+	if strings.Contains(configID(a), "config") {
+		t.Error("the ID must not disclose the path")
+	}
+}
+
+func TestProxyDecision(t *testing.T) {
+	if ok, warn, err := proxyDecision("x", "x", 9090); !ok || warn != "" || err != nil {
+		t.Errorf("same config: ok=%v warn=%q err=%v", ok, warn, err)
+	}
+	if ok, _, err := proxyDecision("x", "y", 9090); ok || err == nil || !strings.Contains(err.Error(), "port") {
+		t.Errorf("other config must be refused with a way out: ok=%v err=%v", ok, err)
+	}
+	if ok, warn, err := proxyDecision("x", "", 9090); !ok || warn == "" || err != nil {
+		t.Errorf("older daemon: relay with a warning, got ok=%v warn=%q err=%v", ok, warn, err)
 	}
 }
 
