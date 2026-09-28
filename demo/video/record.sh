@@ -1,7 +1,7 @@
 #!/bin/sh
-# Records the approval scene to out/approval.mp4, from a clean demo state.
+# Records a demo scene to out/<scene>.mp4, from a clean demo state.
 #
-#   ./record.sh
+#   ./record.sh [scene]      approval (default) or rugpull, see scenes/
 #
 # Needs what ../run.sh needs (mesh7, a built console), plus ttyd, ffmpeg,
 # node and a Chrome or Chromium (CHROME, default: the one Playwright caches).
@@ -9,6 +9,8 @@
 set -eu
 cd "$(dirname "$0")"
 HERE="$PWD"
+SCENE="${1:-approval}"
+[ -f "scenes/$SCENE.mjs" ] || { echo "no scene $SCENE" >&2; exit 2; }
 DEMO="$(cd .. && pwd)"
 export MESH7="${MESH7:-mesh7}"
 export CHROME="${CHROME:-$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux64/chrome 2>/dev/null | tail -1)}"
@@ -36,7 +38,7 @@ TTYD=$!
 trap 'kill $TTYD 2>/dev/null; "$DEMO/run.sh" stop >/dev/null' EXIT
 sleep 1
 
-TERM_URL="http://127.0.0.1:${TTYD_PORT:-7691}" node record.mjs
-ffmpeg -loglevel error -y -i out/approval.webm \
-  -c:v libx264 -pix_fmt yuv420p -crf 20 -preset slow -movflags +faststart out/approval.mp4
-echo "$HERE/out/approval.mp4"
+TERM_URL="http://127.0.0.1:${TTYD_PORT:-7691}" node record.mjs "$SCENE"
+ffmpeg -loglevel error -y -i "out/$SCENE.webm" \
+  -c:v libx264 -pix_fmt yuv420p -crf 20 -preset slow -movflags +faststart "out/$SCENE.mp4"
+echo "$HERE/out/$SCENE.mp4"

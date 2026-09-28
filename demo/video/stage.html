@@ -17,12 +17,15 @@
   #title b { color:var(--accent); font-weight:700; }
   #sub { font-size:19px; color:var(--muted); min-height:1.3em; }
   header, #title, #sub { transition: opacity .35s ease; }
-  main { display:grid; grid-template-columns: 44% 56%; height:calc(100% - 120px); }
+  main { display:grid; grid-template-columns: 40% 60%; height:calc(100% - 120px); }
   .pane { position:relative; border-right:1px solid var(--line); }
   .pane:last-child { border-right:0; }
   .tag { position:absolute; top:10px; right:14px; z-index:2; font-size:13px; color:var(--muted);
     letter-spacing:.12em; text-transform:uppercase; }
   iframe { width:100%; height:100%; border:0; display:block; background:var(--ground); }
+  /* The console is laid out for a wide screen: shown at 85 %, sidebar folded, so a row fits. */
+  #console { width:118%; height:118%; transform:scale(.85); transform-origin:0 0; }
+  .pane { overflow:hidden; }
   .pane.hot { box-shadow: inset 0 0 0 2px var(--accent); }
 </style>
 </head>
