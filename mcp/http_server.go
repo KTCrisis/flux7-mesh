@@ -32,6 +32,7 @@ type HTTPHandler struct {
 	SupervisorMode   bool
 	SupervisorAgents []string
 	ApprovalChannel  string
+	HideDenied       bool // see Server.HideDenied
 
 	mu       sync.Mutex
 	sessions map[string]*Server
@@ -211,6 +212,7 @@ func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity) 
 		SupervisorMode:   h.SupervisorMode,
 		SupervisorAgents: h.SupervisorAgents,
 		ApprovalChannel:  h.ApprovalChannel,
+		HideDenied:       h.HideDenied,
 	}
 	h.sessions[srv.SessionID] = srv
 

@@ -131,6 +131,7 @@ type Server struct {
 	Handler          *proxy.Handler
 	MCPManager       *Manager
 	AgentID          string   // agent ID for policy evaluation in MCP mode
+	HideDenied       bool     // drop from tools/list what the policy can only deny
 	UserID           string   // human the agent acts for, when the credential carried one
 	SessionID        string   // optional session ID (set externally or auto-generated at initialize)
 	SupervisorMode   bool     // when true, hide approval.* virtual tools from agents
@@ -247,11 +248,39 @@ func (s *Server) handleInitialize() map[string]any {
 	}
 }
 
+// deniedOnly reports whether every path through the policy ends in deny for
+// this agent and tool: the fallthrough action and every conditional rule
+// before it, each tightened by the dispatcher floor. Grants lift
+// human_approval only, never deny, so such a tool can never be called and
+// hiding it from the catalogue loses nothing.
+func (s *Server) deniedOnly(t *registry.Tool) bool {
+	if !s.HideDenied || s.Policy == nil {
+		return false
+	}
+	floor := t.DispatchFloor()
+	final := func(action string) string {
+		return policy.Tighten(policy.Decision{Action: action}, floor).Action
+	}
+	sd := s.Policy.Explain(s.AgentID, t.Name)
+	if final(sd.Action) != "deny" {
+		return false
+	}
+	for _, c := range sd.Conditional {
+		if final(c.Action) != "deny" {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) handleToolsList() map[string]any {
 	tools := s.Registry.All()
 	mcpTools := make([]MCPTool, 0, len(tools))
 
 	for _, t := range tools {
+		if s.deniedOnly(t) {
+			continue
+		}
 		// Build input schema from tool params
 		props := make(map[string]MCPProp)
 		var required []string

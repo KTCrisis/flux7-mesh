@@ -37,6 +37,12 @@ type Config struct {
 	MCPServers             []MCPServerConfig `yaml:"mcp_servers"`
 	CLITools               []CLIToolConfig   `yaml:"cli_tools"`
 	OpenAPIs               []OpenAPIConfig   `yaml:"openapi,omitempty"`
+
+	// HideDeniedTools removes from an MCP client's tools/list every tool the
+	// policy can only deny for that agent, so the model never sees it. Off by
+	// default: an operator on their own machine usually wants the full list.
+	// Calls are enforced either way; hiding is not the security boundary.
+	HideDeniedTools bool `yaml:"hide_denied_tools,omitempty"`
 }
 
 // AuthConfig holds authentication settings.
