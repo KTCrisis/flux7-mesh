@@ -287,3 +287,33 @@ func TestReloadConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestExplain(t *testing.T) {
+	e := NewEngine([]config.Policy{
+		{Name: "specific", Agent: "claude", Rules: []config.Rule{
+			{Tools: []string{"fs.write"}, Action: "allow",
+				Condition: &config.Condition{Field: "path", Operator: "starts_with", Value: config.CondValue{Strings: []string{"/work"}}}},
+			{Tools: []string{"fs.*"}, Action: "human_approval"},
+		}},
+		{Name: "catchall", Agent: "*", Rules: []config.Rule{{Tools: []string{"fs.read"}, Action: "allow"}}},
+	})
+
+	sd := e.Explain("claude", "fs.write")
+	if sd.Action != "human_approval" || sd.Rule != "specific" {
+		t.Errorf("fs.write = %s/%s, want human_approval/specific", sd.Action, sd.Rule)
+	}
+	if len(sd.Conditional) != 1 || sd.Conditional[0].Field != "path" || sd.Conditional[0].Action != "allow" {
+		t.Errorf("conditional = %+v, want one allow on path", sd.Conditional)
+	}
+
+	// Explain must agree with Evaluate whenever no condition is involved.
+	for _, tc := range []struct{ agent, tool string }{
+		{"claude", "fs.read"}, {"other", "fs.read"}, {"other", "fs.write"}, {"claude", "net.get"},
+	} {
+		sd := e.Explain(tc.agent, tc.tool)
+		d := e.Evaluate(tc.agent, tc.tool, nil)
+		if sd.Action != d.Action || sd.Rule != d.Rule {
+			t.Errorf("%s/%s: Explain %s/%s, Evaluate %s/%s", tc.agent, tc.tool, sd.Action, sd.Rule, d.Action, d.Rule)
+		}
+	}
+}

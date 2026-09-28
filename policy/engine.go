@@ -13,9 +13,9 @@ import (
 
 // Decision is the result of a policy evaluation.
 type Decision struct {
-	Action  string `json:"action"`  // allow, deny, human_approval
-	Rule    string `json:"rule"`    // which policy/rule matched
-	Reason  string `json:"reason"`  // human-readable explanation
+	Action string `json:"action"` // allow, deny, human_approval
+	Rule   string `json:"rule"`   // which policy/rule matched
+	Reason string `json:"reason"` // human-readable explanation
 }
 
 // Engine evaluates tool calls against configured policies.
@@ -107,6 +107,61 @@ func (e *Engine) Evaluate(agentID string, toolName string, params map[string]any
 		Rule:   "default",
 		Reason: "no matching policy — fail closed",
 	}
+}
+
+// StaticDecision is what the policy says about a tool before any call is
+// made, for display and review. It is not a substitute for Evaluate: rules
+// with a condition depend on the call's arguments, so they are listed in
+// Conditional rather than decided. Action is where evaluation lands when none
+// of them matches.
+type StaticDecision struct {
+	Action      string            `json:"action"`
+	Rule        string            `json:"rule"`
+	Conditional []ConditionalRule `json:"conditional,omitempty"`
+}
+
+// ConditionalRule is a matching rule whose outcome depends on an argument.
+// It is evaluated before Action, in this order, and wins when its condition
+// holds for the call.
+type ConditionalRule struct {
+	Action   string `json:"action"`
+	Rule     string `json:"rule"`
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+}
+
+// Explain walks the rules the way Evaluate does, without arguments: rules
+// with a condition are collected instead of evaluated, and the first rule
+// without one gives the fallthrough action.
+func (e *Engine) Explain(agentID, toolName string) StaticDecision {
+	e.mu.RLock()
+	policies := e.policies
+	e.mu.RUnlock()
+
+	var out StaticDecision
+	for _, pol := range policies {
+		if !matchAgent(pol.Agent, agentID) {
+			continue
+		}
+		for _, rule := range pol.Rules {
+			if !matchTool(rule.Tools, toolName) {
+				continue
+			}
+			if rule.Condition != nil {
+				out.Conditional = append(out.Conditional, ConditionalRule{
+					Action:   rule.Action,
+					Rule:     pol.Name,
+					Field:    rule.Condition.Field,
+					Operator: rule.Condition.Operator,
+				})
+				continue
+			}
+			out.Action, out.Rule = rule.Action, pol.Name
+			return out
+		}
+	}
+	out.Action, out.Rule = "deny", "default"
+	return out
 }
 
 func matchAgent(pattern, agentID string) bool {
