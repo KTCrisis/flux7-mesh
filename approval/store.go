@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -70,6 +71,7 @@ func (p *PendingApproval) Remaining(timeout time.Duration) time.Duration {
 type Store struct {
 	mu           sync.RWMutex
 	pending      map[string]*PendingApproval
+	claimed      map[string]bool // approved ids already used by ClaimApproved
 	timeout      time.Duration
 	db           *sql.DB
 	Notifier     *Notifier
@@ -131,6 +133,7 @@ func NewStore(timeout time.Duration) *Store {
 	}
 	return &Store{
 		pending: make(map[string]*PendingApproval),
+		claimed: make(map[string]bool),
 		timeout: timeout,
 	}
 }
@@ -244,6 +247,36 @@ func (s *Store) Approve(id, resolvedBy string) error {
 // Deny is a convenience wrapper for Resolve with StatusDenied.
 func (s *Store) Deny(id, resolvedBy string) error {
 	return s.Resolve(id, StatusDenied, ResolveOpts{ResolvedBy: resolvedBy})
+}
+
+// ClaimApproved finds an approval a human already granted for exactly this
+// call (same agent, tool and arguments), resolved within the last window,
+// and not yet used. It marks it used and returns it, or returns nil.
+//
+// This is how a non-blocking caller gets its result: the tool call returns
+// at once with the approval id, a human approves out of band (CLI, console,
+// HTTP), and the agent's retry of the same call runs once. Arguments are
+// compared on their JSON encoding, which sorts map keys.
+func (s *Store) ClaimApproved(agentID, tool string, params map[string]any, window time.Duration) *PendingApproval {
+	want, err := json.Marshal(params)
+	if err != nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, pa := range s.pending {
+		if pa.Status != StatusApproved || pa.AgentID != agentID || pa.Tool != tool ||
+			s.claimed[id] || time.Since(pa.ResolvedAt) > window {
+			continue
+		}
+		got, err := json.Marshal(pa.Params)
+		if err != nil || string(got) != string(want) {
+			continue
+		}
+		s.claimed[id] = true
+		return pa
+	}
+	return nil
 }
 
 // Get returns a pending approval by ID or prefix, or nil if not found.

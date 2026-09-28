@@ -273,6 +273,19 @@ func (s *Server) deniedOnly(t *registry.Tool) bool {
 	return true
 }
 
+// approvalRequiredText tells the agent what to relay to its user. The agent
+// cannot approve its own call (approval.resolve is operator-only), so the
+// message names the human's ways to decide and what the agent does next.
+func approvalRequiredText(id, tool string, seconds int) string {
+	return fmt.Sprintf("Approval required (id: %s) for %s, valid %ds.\n"+
+		"Ask the user to approve it, with one of:\n"+
+		"  mesh approve %s        (terminal)\n"+
+		"  the Approvals page of flux7-console\n"+
+		"  POST /approvals/%s/approve on the mesh HTTP port\n"+
+		"Once approved, call %s again with the same arguments: the approved call runs once.",
+		id, tool, seconds, id, id, tool)
+}
+
 // floor is the proxy's floor for a tool (dispatcher and pin), or the
 // dispatcher floor alone when the server runs without a proxy handler.
 func (s *Server) floor(t *registry.Tool) string {
@@ -588,6 +601,18 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 			}, nil
 		}
 
+		// A human may already have approved exactly this call: the agent was
+		// told to retry once it was approved. Run it once, on that approval.
+		if s.Approvals != nil && !s.SupervisorMode {
+			if pa := s.Approvals.ClaimApproved(s.AgentID, toolName, arguments, s.Approvals.Timeout()); pa != nil {
+				entry.ApprovalID = pa.ID
+				s.Traces.Record(entry)
+				return s.handleResolution(pa, entry, approval.Resolution{
+					Status: approval.StatusApproved, ResolvedBy: pa.ResolvedBy, ResolvedAt: pa.ResolvedAt,
+				}, toolName, arguments)
+			}
+		}
+
 		// No TTY available — block on approval store, resolve via HTTP API or mesh CLI
 		if s.Approvals == nil {
 			s.Traces.Record(entry)
@@ -618,16 +643,14 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 
 		slog.Info("approval pending (non-blocking)",
 			"approval_id", shortID, "agent", s.AgentID, "tool", toolName,
-			"resolve_via", fmt.Sprintf("approval.resolve {id: %s, decision: approve} OR mesh approve %s", shortID, shortID))
+			"resolve_via", "mesh approve "+shortID)
 
-		// Non-blocking: return immediately, let the caller resolve via approval.resolve tool
+		// Non-blocking: return at once; a human approves out of band and the
+		// agent's retry of the same call runs (ClaimApproved above).
 		remaining := pending.Remaining(s.Approvals.Timeout())
 		return map[string]any{
 			"content": []map[string]any{
-				{"type": "text", "text": fmt.Sprintf(
-					"Approval required (id: %s). Tool: %s. Timeout: %ds.\n"+
-						"Use approval.resolve with id=%s and decision=approve or deny.",
-					shortID, toolName, int(remaining.Seconds()), shortID)},
+				{"type": "text", "text": approvalRequiredText(shortID, toolName, int(remaining.Seconds()))},
 			},
 		}, nil
 	}

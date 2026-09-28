@@ -45,12 +45,11 @@ Agents see an ordinary tool surface. The operator sees every decision.
 ## Install
 
 ```bash
-VERSION=$(curl -s https://api.github.com/repos/KTCrisis/flux7-mesh/releases/latest | grep tag_name | cut -d '"' -f4)
-curl -L "https://github.com/KTCrisis/flux7-mesh/releases/download/${VERSION}/mesh7_${VERSION#v}_linux_amd64.tar.gz" | tar xz
-sudo mv mesh7 /usr/local/bin/
+curl -L https://github.com/KTCrisis/flux7-mesh/releases/latest/download/mesh7_linux_amd64.tar.gz | tar xz
+sudo mv mesh7 mesh /usr/local/bin/      # the proxy, and the approval CLI
 ```
 
-macOS and other targets: [releases](https://github.com/KTCrisis/flux7-mesh/releases). From source (Go 1.24+): `make install`. Python SDK and the Claude Code harness hook: `pip install flux7-mesh` ([Python SDK](https://docs.flux7.art/mesh7/python-sdk/)).
+Other targets: `mesh7_darwin_arm64.tar.gz`, `mesh7_linux_arm64.tar.gz`, `mesh7_windows_amd64.zip`… ([releases](https://github.com/KTCrisis/flux7-mesh/releases)). From source (Go 1.24+): `make install`. Python SDK and the Claude Code harness hook: `pip install flux7-mesh` ([Python SDK](https://docs.flux7.art/mesh7/python-sdk/)).
 
 ## Quick start
 
@@ -82,7 +81,7 @@ mesh7 discover --config config.yaml --generate-policy   # or start from a commen
 claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
-Restart Claude Code: the tools are there, the rules apply, every call is traced. For a long-running daemon, OpenAPI and CLI sources, and every YAML key, see [Getting started](https://docs.flux7.art/mesh7/getting-started/) and [Configuration](https://docs.flux7.art/mesh7/configuration/).
+Restart Claude Code: the tools are there, the rules apply, every call is traced. When a call needs approval, the agent relays an id: run `mesh approve <id>` (or use the [console](https://github.com/KTCrisis/flux7-console)), and its retry of the same call goes through. For a long-running daemon, OpenAPI and CLI sources, and every YAML key, see [Getting started](https://docs.flux7.art/mesh7/getting-started/) and [Configuration](https://docs.flux7.art/mesh7/configuration/).
 
 ## Documentation
 
