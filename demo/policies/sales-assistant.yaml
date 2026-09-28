@@ -1,0 +1,22 @@
+name: sales-assistant
+agent: "sales-assistant"
+rules:
+  # Reads: the assistant looks customers up freely.
+  - tools: ["crm.search_customers", "crm.get_customer"]
+    action: allow
+
+  # Writes and anything that leaves the company wait for a human.
+  - tools: ["crm.update_customer", "crm.send_invoice_email"]
+    action: human_approval
+
+  # SQL is an interpreter: text matching lets SELECT through, the rest asks.
+  - tools: ["crm.run_sql"]
+    action: allow
+    condition: { field: sql, operator: starts_with, value: ["SELECT"] }
+  - tools: ["crm.run_sql"]
+    action: human_approval
+
+  # The rest of the CRM is fine: a broad allow, as policies often end.
+  # Pinning still holds back a tool the CRM adds or rewrites later.
+  - tools: ["crm.*"]
+    action: allow
