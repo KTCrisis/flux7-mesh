@@ -360,8 +360,8 @@ func TestServerApprovalReturnsImmediately(t *testing.T) {
 	if !strings.Contains(text, "Approval required") {
 		t.Errorf("expected 'Approval required', got: %s", text)
 	}
-	if !strings.Contains(text, "approval.resolve") {
-		t.Errorf("expected instructions for approval.resolve, got: %s", text)
+	if !strings.Contains(text, "mesh approve") || !strings.Contains(text, "again with the same arguments") {
+		t.Errorf("expected how a human approves and what the agent does next, got: %s", text)
 	}
 
 	// Approval should be pending in the store
