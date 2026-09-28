@@ -227,6 +227,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.handler.Pins = m.pins
 	m.handler.SupervisorCfg = cfg.Supervisor
 	m.handler.Version = version
+	m.handler.ConfigID = configID(configPath)
 	m.handler.Commit = commit
 	m.handler.BuildDate = date
 	if len(cfg.CLITools) > 0 {

@@ -73,6 +73,10 @@ type Handler struct {
 
 	// Build info (populated from main.go ldflags-injected vars).
 	Version   string
+	// ConfigID identifies the config file this process serves (a hash of its
+	// absolute path, not the path). An `mesh7 --mcp` client compares it with
+	// its own before relaying to this daemon.
+	ConfigID string
 	Commit    string
 	BuildDate string
 }
@@ -882,6 +886,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"tools":   len(h.Registry.All()),
 		"traces":  h.Traces.Stats(),
 		"version": h.Version,
+		"config":  h.ConfigID,
 	})
 }
 
