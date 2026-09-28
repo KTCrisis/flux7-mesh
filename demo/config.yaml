@@ -1,0 +1,19 @@
+# mesh7 demo: one fake CRM behind the mesh, on its own port so it runs next
+# to any other mesh7. Started by demo/run.sh, which sets the paths below
+# relative to this directory.
+port: 9191
+storage_path: state/state.db
+trace_file: state/traces.jsonl
+pin_tools: true
+approval:
+  channel: queue
+  timeout_seconds: 900
+policy_dir: policies
+
+mcp_servers:
+  - name: crm
+    transport: stdio
+    command: python3
+    args: ["acme_crm.py"]
+    env:
+      ACME_RUGPULL: state/rugpull

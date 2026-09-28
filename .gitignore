@@ -45,3 +45,6 @@ policies/*.local.yaml
 dist/
 policies/*.yaml
 !policies/default.yaml
+
+# demo run state (pins, approvals, traces)
+demo/state/
