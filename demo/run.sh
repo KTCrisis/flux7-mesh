@@ -12,6 +12,7 @@
 # frontend, default ~/flux7-console/frontend) can be overridden.
 set -eu
 cd "$(dirname "$0")"
+DEMO="$PWD"
 MESH7="${MESH7:-mesh7}"
 CONSOLE_DIR="${CONSOLE_DIR:-$HOME/flux7-console/frontend}"
 export MESH_TRACE_KEY="${MESH_TRACE_KEY:-demo-key-not-a-secret}"
@@ -43,9 +44,9 @@ start_mesh() {
 start_console() {
   [ -d "$CONSOLE_DIR/.next" ] || { echo "console: no build in $CONSOLE_DIR (skipped)"; return; }
   stop_console
-  (cd "$CONSOLE_DIR" && MESH_URL=http://localhost:9191 MESH_ADMIN_TOKEN= POLICY_DIR="$OLDPWD/policies" \
-     ./node_modules/.bin/next start -H 127.0.0.1 -p 3118 > "$OLDPWD/state/console.log" 2>&1 &
-   echo $! > "$OLDPWD/state/console.pid")
+  (cd "$CONSOLE_DIR" && MESH_URL=http://localhost:9191 MESH_ADMIN_TOKEN= POLICY_DIR="$DEMO/policies" \
+     ./node_modules/.bin/next start -H 127.0.0.1 -p 3118 > "$DEMO/state/console.log" 2>&1 &
+   echo $! > "$DEMO/state/console.pid")
   echo "console http://localhost:3118/mesh/tools"
 }
 
