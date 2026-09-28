@@ -53,9 +53,15 @@ func runDiscover(args []string) {
 			os.Exit(1)
 		}
 
-		if *specURL == "" && len(cfg.MCPServers) == 0 {
-			fmt.Fprintln(os.Stderr, "No MCP servers or OpenAPI specs to discover.")
+		if *specURL == "" && len(cfg.MCPServers) == 0 && len(cfg.CLITools) == 0 {
+			fmt.Fprintln(os.Stderr, "No MCP servers, CLI tools or OpenAPI specs to discover.")
 			os.Exit(1)
+		}
+
+		// CLI tools are declared, not discovered: loading them starts nothing.
+		// They matter here because their dispatchers are generic tools.
+		if len(cfg.CLITools) > 0 {
+			reg.LoadCLI(cfg.CLITools)
 		}
 
 		if len(cfg.MCPServers) > 0 {
@@ -122,7 +128,7 @@ func runDiscover(args []string) {
 
 	// Generate policy
 	if *genPolicy {
-		fmt.Printf("\n# Suggested policy (read-only by default):\n\n")
+		fmt.Printf("\n# Draft policy: named reads allowed, everything else asks. Review each line.\n# See docs/internal/design-tool-families.md.\n\n")
 		generatePolicy(groups)
 	}
 
@@ -167,32 +173,21 @@ func groupTools(tools []*registry.Tool) []toolGroup {
 
 func generatePolicy(groups []toolGroup) {
 	fmt.Println("policies:")
-	fmt.Println("  - name: safe-mode")
+	fmt.Println("  - name: draft")
 	fmt.Println("    agent: \"*\"")
 	fmt.Println("    rules:")
 
 	for _, g := range groups {
-		readTools := []string{}
-		writeTools := []string{}
-
+		var allow, ask []*registry.Tool
 		for _, t := range g.tools {
-			if isReadTool(t) {
-				readTools = append(readTools, t.Name)
+			if registry.Classify(t).SuggestedAction() == "allow" {
+				allow = append(allow, t)
 			} else {
-				writeTools = append(writeTools, t.Name)
+				ask = append(ask, t)
 			}
 		}
-
-		if len(readTools) > 0 {
-			fmt.Printf("      # %s — read operations\n", g.label)
-			fmt.Printf("      - tools: [%s]\n", formatToolList(readTools))
-			fmt.Println("        action: allow")
-		}
-		if len(writeTools) > 0 {
-			fmt.Printf("      # %s — write operations\n", g.label)
-			fmt.Printf("      - tools: [%s]\n", formatToolList(writeTools))
-			fmt.Println("        action: deny")
-		}
+		printRule(g.label, "reads through a named tool", "allow", allow)
+		printRule(g.label, "writes, generic tools, or no signal", "human_approval", ask)
 	}
 
 	fmt.Println("")
@@ -203,25 +198,25 @@ func generatePolicy(groups []toolGroup) {
 	fmt.Println("        action: deny")
 }
 
-// isReadTool guesses if a tool is read-only based on its name and HTTP method.
-func isReadTool(t *registry.Tool) bool {
-	if t.Method == "GET" {
-		return true
+// printRule writes one rule, preceded by the reasons behind each tool's
+// classification, so the draft is reviewed rather than trusted.
+func printRule(label, what, action string, tools []*registry.Tool) {
+	if len(tools) == 0 {
+		return
 	}
-	name := strings.ToLower(t.Name)
-	readPrefixes := []string{"get_", "list_", "find_", "search_", "read_", "describe_", "show_", "fetch_", "query_"}
-	readContains := []string{".read_", ".list_", ".get_", ".find_", ".search_", ".describe_", ".show_", ".fetch_", ".query_", ".directory_tree", ".get_file_info", ".list_allowed", "_read_", "_list_", "_get_", "_find_", "_search_", "_fetch_", "_query_"}
-	for _, p := range readPrefixes {
-		if strings.HasPrefix(name, p) {
-			return true
+	fmt.Printf("      # %s: %s\n", label, what)
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		c := registry.Classify(t)
+		tag := string(c.Access)
+		if c.Family == registry.FamilyGeneric {
+			tag = "GENERIC, the argument decides"
 		}
+		fmt.Printf("      #   %s [%s] %s\n", t.Name, tag, strings.Join(c.Reasons, "; "))
+		names[i] = t.Name
 	}
-	for _, c := range readContains {
-		if strings.Contains(name, c) {
-			return true
-		}
-	}
-	return false
+	fmt.Printf("      - tools: [%s]\n", formatToolList(names))
+	fmt.Printf("        action: %s\n", action)
 }
 
 func formatToolList(tools []string) string {

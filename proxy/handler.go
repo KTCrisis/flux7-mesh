@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -102,6 +103,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.MCPHTTPHandler.ServeHTTP(w, r)
 
 	// --- Control plane: operator actions, require admin auth ---
+	case r.Method == "GET" && r.URL.Path == "/tools/decisions":
+		h.admin(r, w, h.handleToolDecisions)
 	case r.Method == "GET" && r.URL.Path == "/traces":
 		h.admin(r, w, h.handleTraces)
 	case r.Method == "GET" && r.URL.Path == "/traces/verify":
@@ -708,7 +711,61 @@ func (h *Handler) handleListTools(w http.ResponseWriter, r *http.Request) {
 	if !h.requireAuthOK(w, r) {
 		return
 	}
-	writeJSON(w, 200, h.Registry.All())
+	tools := h.Registry.All()
+	out := make([]toolView, len(tools))
+	for i, t := range tools {
+		out[i] = toolView{Tool: t, Classification: registry.Classify(t)}
+	}
+	writeJSON(w, 200, out)
+}
+
+// toolView is a registry tool plus the mesh's reading of it. Embedding the
+// *registry.Tool promotes its fields into the JSON object, so existing
+// clients see the same shape with one field more.
+type toolView struct {
+	*registry.Tool
+	Classification registry.Classification `json:"classification"`
+}
+
+// toolDecision is one row of GET /tools/decisions.
+type toolDecision struct {
+	Name           string                  `json:"name"`
+	Source         string                  `json:"source"`
+	MCPServer      string                  `json:"mcp_server,omitempty"`
+	Classification registry.Classification `json:"classification"`
+	policy.StaticDecision
+}
+
+// handleToolDecisions reports, for one agent, what the policy decides for
+// every tool in the catalogue, before any call. It is control plane because it
+// discloses the policy. Grants are not reflected: they belong to a session,
+// not to the catalogue. The dispatcher floor is, since it holds for every call.
+func (h *Handler) handleToolDecisions(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	if agent == "" {
+		writeJSON(w, 400, map[string]string{"error": "agent query parameter required"})
+		return
+	}
+	tools := h.Registry.All()
+	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+
+	out := make([]toolDecision, 0, len(tools))
+	for _, t := range tools {
+		sd := h.Policy.Explain(agent, t.Name)
+		floor := t.DispatchFloor()
+		sd.Action = policy.Tighten(policy.Decision{Action: sd.Action}, floor).Action
+		for i := range sd.Conditional {
+			sd.Conditional[i].Action = policy.Tighten(policy.Decision{Action: sd.Conditional[i].Action}, floor).Action
+		}
+		out = append(out, toolDecision{
+			Name:           t.Name,
+			Source:         t.Source,
+			MCPServer:      t.MCPServer,
+			Classification: registry.Classify(t),
+			StaticDecision: sd,
+		})
+	}
+	writeJSON(w, 200, out)
 }
 
 // handleTraceVerify walks the hash chain of the trace file and reports the

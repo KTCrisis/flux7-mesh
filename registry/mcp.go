@@ -8,6 +8,7 @@ type MCPToolDef struct {
 	Name        string
 	Description string
 	Params      []Param
+	Annotations *Annotations
 }
 
 // NewMCPToolDef creates an MCPToolDef from raw MCP schema data.
@@ -56,6 +57,7 @@ func (r *Registry) LoadMCP(serverName string, tools []MCPToolDef) {
 			Source:      "mcp",
 			MCPServer:   serverName,
 			Params:      t.Params,
+			Annotations: t.Annotations,
 		})
 	}
 }
