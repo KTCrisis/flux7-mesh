@@ -48,3 +48,4 @@ policies/*.yaml
 
 # demo run state (pins, approvals, traces)
 demo/state/
+data/
