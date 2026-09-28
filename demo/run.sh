@@ -28,7 +28,12 @@ stop_pid() {
   i=0; while kill -0 "$pid" 2>/dev/null; do i=$((i+1)); [ $i -gt 40 ] && kill -9 "$pid" 2>/dev/null; sleep 0.25; done
 }
 stop_mesh() { stop_pid state/mesh.pid; }
-stop_console() { stop_pid state/console.pid; }
+# next start forks a next-server child: the console runs in its own process
+# group (setsid) and is stopped as a group, or the child keeps the port.
+stop_console() {
+  [ -f state/console.pid ] && kill -- -"$(cat state/console.pid)" 2>/dev/null
+  stop_pid state/console.pid
+}
 
 start_mesh() {
   stop_mesh
@@ -46,7 +51,7 @@ start_console() {
   [ -d "$CONSOLE_DIR/.next" ] || { echo "console: no build in $CONSOLE_DIR (skipped)"; return; }
   stop_console
   (cd "$CONSOLE_DIR" && MESH_URL=http://localhost:9191 MESH_ADMIN_TOKEN= POLICY_DIR="$DEMO/policies" \
-     ./node_modules/.bin/next start -H 127.0.0.1 -p 3118 > "$DEMO/state/console.log" 2>&1 &
+     setsid ./node_modules/.bin/next start -H 127.0.0.1 -p 3118 > "$DEMO/state/console.log" 2>&1 &
    echo $! > "$DEMO/state/console.pid")
   echo "console http://localhost:3118/mesh/tools"
 }
