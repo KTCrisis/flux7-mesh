@@ -1,25 +1,27 @@
-# flux7-mesh sidecar — system unit (survives WSL user-manager bus issues).
-# Install:
-#   sudo cp contrib/systemd/mesh7.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now mesh7
-# Adapt User= and paths to your setup.
+# flux7-mesh as a systemd user service. install.sh --service puts it in
+# ~/.config/systemd/user/ and starts it; by hand:
 #
-# A systemd service has no TTY: set `approval.channel: queue` in the mesh
-# config so human_approval requests are routed to the approval queue
-# (resolved via sup7, the HTTP API or the mesh CLI) instead of relying on
-# TTY detection.
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/systemd/mesh7.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now mesh7
+#   loginctl enable-linger "$USER"     # keep it running when you log out
+#
+# %h is your home directory. Adjust ExecStart if mesh7 or the config live
+# elsewhere. A service has no terminal: keep `approval.channel: queue` in the
+# config, and answer approvals with `mesh approve <id>` or the console.
+#
+# Where the user manager is unavailable (some WSL setups), use a system unit
+# instead: install.sh --system.
 
 [Unit]
-Description=flux7-mesh governance sidecar (mesh7)
-Documentation=https://docs.flux7.art
-After=network.target mem7.service
-Wants=mem7.service
+Description=flux7-mesh governance proxy (mesh7)
+Documentation=https://docs.flux7.art/mesh7/deployment-modes/
+After=network.target
 
 [Service]
-User=fluxart
-ExecStart=/home/fluxart/go/bin/mesh7 serve --config /home/fluxart/flux7-mesh/my-flow.local.yaml
+ExecStart=%h/.local/bin/mesh7 serve --config %h/.config/mesh7/config.yaml
 Restart=on-failure
 RestartSec=2
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

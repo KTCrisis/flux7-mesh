@@ -45,8 +45,14 @@ Agents see an ordinary tool surface. The operator sees every decision.
 ## Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/KTCrisis/flux7-mesh/main/install.sh | sh
+```
+
+Installs `mesh7` (the proxy) and `mesh` (the approval CLI) in `~/.local/bin`. Add `-s -- --service` to also run mesh7 as a systemd user service, or `--system` where the user manager is unavailable (some WSL setups). By hand:
+
+```bash
 curl -L https://github.com/KTCrisis/flux7-mesh/releases/latest/download/mesh7_linux_amd64.tar.gz | tar xz
-sudo mv mesh7 mesh /usr/local/bin/      # the proxy, and the approval CLI
+sudo mv mesh7 mesh /usr/local/bin/
 ```
 
 Other targets: `mesh7_darwin_arm64.tar.gz`, `mesh7_linux_arm64.tar.gz`, `mesh7_windows_amd64.zip`… ([releases](https://github.com/KTCrisis/flux7-mesh/releases)). From source (Go 1.24+): `make install`. Python SDK and the Claude Code harness hook: `pip install flux7-mesh` ([Python SDK](https://docs.flux7.art/mesh7/python-sdk/)).
