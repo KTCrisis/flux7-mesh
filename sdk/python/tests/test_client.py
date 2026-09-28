@@ -211,3 +211,14 @@ class TestToken:
             )
             m.decide("fs.read", {"path": "/x"})
         assert "agent" not in post.call_args.kwargs["json"]
+
+    def test_decide_sends_session_header_when_given(self):
+        m = AgentMesh(agent="bot")
+        with patch.object(m._session, "post") as post:
+            post.return_value = MagicMock(
+                content=b'{"action":"allow"}', json=lambda: {"action": "allow"}
+            )
+            m.decide("fs.read", {"path": "/x"}, session_id="sess-9")
+            assert post.call_args.kwargs["headers"] == {"X-Session-Id": "sess-9"}
+            m.decide("fs.read", {"path": "/x"})
+            assert post.call_args.kwargs["headers"] is None

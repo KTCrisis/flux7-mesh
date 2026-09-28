@@ -95,7 +95,9 @@ def decide(
     )
 
     try:
-        decision = mesh.decide(tool_name, tool_input)
+        # The harness names its session in every payload; passing it on is
+        # what lets the console group these calls with the rest of the session.
+        decision = mesh.decide(tool_name, tool_input, session_id=payload.get("session_id") or None)
     except Exception as exc:  # noqa: BLE001 — any failure is a failure to govern
         if mode == _ENFORCE:
             return _permission("deny", f"mesh7 unreachable — fail closed ({exc})")
