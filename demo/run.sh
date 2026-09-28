@@ -5,6 +5,7 @@
 #   ./run.sh start      start the demo mesh (and the console if found)
 #   ./run.sh rugpull    the CRM "updates itself"; restart the mesh to see it
 #   ./run.sh verify     check the trace chain, then show a tampered copy failing
+#   ./run.sh tamper     write state/tampered.jsonl, one approval rewritten into an allow
 #   ./run.sh reset      stop and wipe demo state (pins, approvals, traces)
 #   ./run.sh stop
 #
@@ -53,8 +54,7 @@ start_console() {
 case "${1:-}" in
   start)   start_mesh; start_console ;;
   rugpull) touch state/rugpull; start_mesh; echo "the CRM changed its catalogue: see the banner on the Tools page" ;;
-  verify)
-    curl -s localhost:9191/traces/verify; echo
+  tamper)
     cp state/traces.jsonl state/tampered.jsonl
     # Change one decision in place, as someone covering their tracks would:
     # the first approval becomes an allow, nothing else moves.
@@ -67,8 +67,12 @@ for i, l in enumerate(lines):
         break
 open("state/tampered.jsonl", "w").write("".join(lines))
 PY
+    ;;
+  verify)
+    curl -s localhost:9191/traces/verify; echo
+    "$0" tamper
     "$MESH7" trace verify state/tampered.jsonl || true ;;
   reset)   stop_mesh; stop_console; rm -rf state; echo "demo state wiped" ;;
   stop)    stop_mesh; stop_console; echo "stopped" ;;
-  *) sed -n '2,12p' "$0"; exit 2 ;;
+  *) sed -n '2,13p' "$0"; exit 2 ;;
 esac

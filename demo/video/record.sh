@@ -23,6 +23,8 @@ mkdir -p out
 # short prompt and the same MESH7 as run.sh.
 cat > out/shell.rc <<EOF
 PS1='\[\033[2m\]demo \$\[\033[0m\] '
+export MESH_TRACE_KEY=demo-key-not-a-secret
+mesh7() { "\$MESH7" "\$@"; }
 cd "$DEMO"
 clear
 EOF

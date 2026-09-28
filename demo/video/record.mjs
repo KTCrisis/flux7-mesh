@@ -113,10 +113,16 @@ await waitFor(async () => (await pending()).length > 0, 'the second approval');
 await caption('Une relance de plus : <b>nouvelle approbation</b>', 'Un accord vaut une exécution, pas un blanc-seing.');
 await sleep(6500);
 
-// 4. The proof
-await typeInTerm('clear && ./run.sh verify');
-await caption('Chaque décision est <b>tracée et signée</b>', 'Une copie falsifiée de la trace échoue à la ligne modifiée.');
-await sleep(9100);
+// 4. The proof, in three beats: intact, tampered, caught
+await typeInTerm('clear && mesh7 trace verify state/traces.jsonl');
+await caption('Chaque décision est <b>chaînée et signée</b>', 'La trace se vérifie de bout en bout : OK.');
+await sleep(7000);
+await typeInTerm('./run.sh tamper');
+await caption('Quelqu\'un <b>réécrit une décision</b>', 'Dans une copie de la trace, l\'approbation humaine devient un simple « allow ».');
+await sleep(7000);
+await typeInTerm('mesh7 trace verify state/tampered.jsonl');
+await caption('La falsification est <b>détectée, à la ligne près</b>', 'BROKEN : l\'empreinte de la ligne 2 ne correspond plus à son contenu.');
+await sleep(8000);
 
 // 5. Close
 await caption('<b>mesh7</b>', 'Une règle, une trace, et la mémoire de qui a dit oui.');
