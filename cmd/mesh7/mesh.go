@@ -290,7 +290,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.handler.MCPHTTPHandler = m.mcpHTTP
 
 	// Policy hot-reload watcher
-	policyWatcher, err := policy.NewWatcher(configPath, func(policies []config.Policy) {
+	applyPolicies := func(policies []config.Policy) {
 		m.pol.Reload(policies)
 		newLimits := make(map[string]ratelimit.Limit)
 		for _, p := range policies {
@@ -302,7 +302,13 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 			}
 		}
 		limiter.ReplaceLimits(newLimits)
-	})
+	}
+	// The control plane edits policy files through the same path a hand edit
+	// takes: validated as a whole, then applied like a hot reload.
+	if _, dir, err := config.LoadPolicies(configPath); err == nil && dir != "" {
+		m.handler.PolicyEditing = &proxy.PolicyEditing{ConfigPath: configPath, Dir: dir, Reload: applyPolicies}
+	}
+	policyWatcher, err := policy.NewWatcher(configPath, applyPolicies)
 	if err != nil {
 		slog.Warn("policy hot-reload disabled", "error", err)
 	} else {
