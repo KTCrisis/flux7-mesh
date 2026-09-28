@@ -1,0 +1,6 @@
+# Upstream catalogues are pinned; what changes is held back until accepted
+
+- **Problem**: an MCP server can add a tool or rewrite a description after it was reviewed (the "rug pull"), and a broad glob such as `crm.*: allow` then lets the new or rewritten tool through without anyone looking at it.
+- **Decision**: with `pin_tools`, each upstream MCP tool is fingerprinted (description, parameter schemas sorted by name, annotations) in `storage_path`; a server seen for the first time is trusted and pinned whole; afterwards a new tool gets a `deny` floor and a changed one a `human_approval` floor, whatever the policy says, until accepted (`POST /tools/pins/accept`, recorded as `mesh.pin_accept`). A refusal names the pin (`pin:new`, `pin:changed`). Off by default.
+- **Why**: the policy cannot relax a floor, so the guarantee holds against permissive rules; trust on first use costs nothing to adopt; showing old and new descriptions side by side makes the review a glance. Validated on real traffic: ollama-mcp-go's own 0.2.0 upgrade was held back, shown and accepted.
+- **Where**: `pin/pin.go`, `proxy/pins.go`, `proxy/handler.go` (`Handler.Floor`, `ApplyFloors`), storage schema v3. Limit: catalogues are read at connect time, so a change shows at the next start.
