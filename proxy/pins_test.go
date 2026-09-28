@@ -54,6 +54,18 @@ func TestPinFloorOverridesAllow(t *testing.T) {
 	}
 }
 
+func TestPinRefusalNamesThePin(t *testing.T) {
+	h := pinnedHandler(t)
+	d := h.ApplyFloors(policy.Decision{Action: "allow", Rule: "open"}, h.Registry.Get("srv.upload"))
+	if d.Action != "deny" || d.Rule != "pin:new" || !strings.Contains(d.Reason, "catalogue pin") {
+		t.Errorf("decision = %+v, want a deny that names the pin", d)
+	}
+	d = h.ApplyFloors(policy.Decision{Action: "deny", Rule: "strict"}, h.Registry.Get("srv.upload"))
+	if d.Rule != "strict" {
+		t.Errorf("a policy deny must keep its own rule, got %+v", d)
+	}
+}
+
 func TestPinsEndpoints(t *testing.T) {
 	h := pinnedHandler(t)
 
