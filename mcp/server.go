@@ -295,6 +295,15 @@ func (s *Server) floor(t *registry.Tool) string {
 	return t.DispatchFloor()
 }
 
+// applyFloors is the proxy's ApplyFloors, or the dispatcher floor alone
+// when the server runs without a proxy handler.
+func (s *Server) applyFloors(d policy.Decision, t *registry.Tool) policy.Decision {
+	if s.Handler != nil {
+		return s.Handler.ApplyFloors(d, t)
+	}
+	return policy.Tighten(d, t.DispatchFloor())
+}
+
 func (s *Server) handleToolsList() map[string]any {
 	tools := s.Registry.All()
 	mcpTools := make([]MCPTool, 0, len(tools))
@@ -476,7 +485,7 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 	}
 
 	// Evaluate policy, then apply the tool's own floor (dynamic dispatchers only)
-	decision := policy.Tighten(s.Policy.Evaluate(s.AgentID, toolName, arguments), s.floor(tool))
+	decision := s.applyFloors(s.Policy.Evaluate(s.AgentID, toolName, arguments), tool)
 	slog.Info("MCP policy evaluated",
 		"agent", s.AgentID, "tool", toolName,
 		"action", decision.Action, "rule", decision.Rule,
@@ -1031,7 +1040,7 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 			continue
 		}
 
-		action := policy.Tighten(s.Policy.Evaluate(s.AgentID, t.Name, nil), s.floor(t)).Action
+		action := s.applyFloors(s.Policy.Evaluate(s.AgentID, t.Name, nil), t).Action
 
 		g, ok := groups[groupKey]
 		if !ok {

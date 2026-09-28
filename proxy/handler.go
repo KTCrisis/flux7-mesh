@@ -72,11 +72,11 @@ type Handler struct {
 	MCPHTTPHandler   http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
 	// Build info (populated from main.go ldflags-injected vars).
-	Version   string
+	Version string
 	// ConfigID identifies the config file this process serves (a hash of its
 	// absolute path, not the path). An `mesh7 --mcp` client compares it with
 	// its own before relaying to this daemon.
-	ConfigID string
+	ConfigID  string
 	Commit    string
 	BuildDate string
 }
@@ -269,7 +269,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Evaluate policy, then apply the tool's own floor (dynamic dispatchers only)
-	decision := policy.Tighten(h.Policy.Evaluate(agentID, toolName, req.Params), h.Floor(tool))
+	decision := h.ApplyFloors(h.Policy.Evaluate(agentID, toolName, req.Params), tool)
 	slog.Info("policy evaluated",
 		"agent", agentID, "tool", toolName,
 		"action", decision.Action, "rule", decision.Rule,
@@ -494,11 +494,33 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 // undeclared subcommand such as terraform.destroy resolves to the dispatcher,
 // so /decide answers exactly what the call path would enforce.
 func (h *Handler) dispatchFloor(toolName string) string {
-	tool := h.Registry.Get(toolName)
-	if tool == nil {
-		tool = h.Registry.ResolveCLI(toolName)
+	return h.Floor(h.resolveTool(toolName))
+}
+
+func (h *Handler) resolveTool(toolName string) *registry.Tool {
+	if tool := h.Registry.Get(toolName); tool != nil {
+		return tool
 	}
-	return h.Floor(tool)
+	return h.Registry.ResolveCLI(toolName)
+}
+
+// ApplyFloors tightens a policy decision by the tool's floors, each with its
+// own rule and reason, so a refusal names what refused: the CLI dispatcher
+// floor, or the catalogue pin of an upstream tool that is new or changed.
+func (h *Handler) ApplyFloors(d policy.Decision, tool *registry.Tool) policy.Decision {
+	if tool == nil {
+		return d
+	}
+	d = policy.Tighten(d, tool.DispatchFloor())
+	if st := h.Pins.Status(tool.Name); st.Floor() != "" {
+		if t := policy.Tighten(d, st.Floor()); t.Action != d.Action {
+			t.Rule = "pin:" + string(st)
+			t.Reason = fmt.Sprintf("catalogue pin: %s is %s since its catalogue was accepted (policy %s returned %s)",
+				tool.Name, st, d.Rule, d.Action)
+			d = t
+		}
+	}
+	return d
 }
 
 // Floor is the least permissive action a tool tolerates whatever the policy
@@ -552,7 +574,7 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	sessionID := extractSessionID(r)
 	start := time.Now()
 
-	decision := policy.Tighten(h.Policy.Evaluate(agentID, toolName, req.Arguments), h.dispatchFloor(toolName))
+	decision := h.ApplyFloors(h.Policy.Evaluate(agentID, toolName, req.Arguments), h.resolveTool(toolName))
 
 	var grantID, parentTraceID string
 	if decision.Action == "human_approval" && h.Grants != nil {
