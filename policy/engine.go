@@ -118,6 +118,16 @@ type StaticDecision struct {
 	Action      string            `json:"action"`
 	Rule        string            `json:"rule"`
 	Conditional []ConditionalRule `json:"conditional,omitempty"`
+
+	// Where the deciding rule lives: the policy file (empty for inline
+	// policies and for the default deny) and the rule's index in that
+	// policy (-1 for the default deny).
+	SourceFile string `json:"source_file,omitempty"`
+	RuleIndex  int    `json:"rule_index"`
+
+	// PolicyAgent is the agent pattern of the deciding policy, so an editor
+	// can tell a policy of this agent from a shared glob one.
+	PolicyAgent string `json:"-"`
 }
 
 // ConditionalRule is a matching rule whose outcome depends on an argument.
@@ -143,7 +153,7 @@ func (e *Engine) Explain(agentID, toolName string) StaticDecision {
 		if !matchAgent(pol.Agent, agentID) {
 			continue
 		}
-		for _, rule := range pol.Rules {
+		for i, rule := range pol.Rules {
 			if !matchTool(rule.Tools, toolName) {
 				continue
 			}
@@ -157,10 +167,11 @@ func (e *Engine) Explain(agentID, toolName string) StaticDecision {
 				continue
 			}
 			out.Action, out.Rule = rule.Action, pol.Name
+			out.SourceFile, out.RuleIndex, out.PolicyAgent = pol.SourceFile, i, pol.Agent
 			return out
 		}
 	}
-	out.Action, out.Rule = "deny", "default"
+	out.Action, out.Rule, out.RuleIndex = "deny", "default", -1
 	return out
 }
 

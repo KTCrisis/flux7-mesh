@@ -54,6 +54,7 @@ type MCPForwarder interface {
 type Handler struct {
 	Registry         *registry.Registry
 	Policy           *policy.Engine
+	PolicyEditing    *PolicyEditing // nil: PUT /policies/... answers 501
 	Traces           *trace.Store
 	Approvals        *approval.Store
 	RateLimiter      *ratelimit.Limiter
@@ -105,6 +106,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Control plane: operator actions, require admin auth ---
 	case r.Method == "GET" && r.URL.Path == "/tools/decisions":
 		h.admin(r, w, h.handleToolDecisions)
+	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/policies/"):
+		h.admin(r, w, h.handlePolicyEdit)
 	case r.Method == "GET" && r.URL.Path == "/traces":
 		h.admin(r, w, h.handleTraces)
 	case r.Method == "GET" && r.URL.Path == "/traces/verify":
