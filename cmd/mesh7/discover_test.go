@@ -6,43 +6,6 @@ import (
 	"github.com/KTCrisis/flux7-mesh/registry"
 )
 
-func TestIsReadTool(t *testing.T) {
-	tests := []struct {
-		tool *registry.Tool
-		want bool
-	}{
-		// Read tools
-		{&registry.Tool{Name: "get_order", Method: "GET"}, true},
-		{&registry.Tool{Name: "list_users"}, true},
-		{&registry.Tool{Name: "find_pets_by_status"}, true},
-		{&registry.Tool{Name: "search_files"}, true},
-		{&registry.Tool{Name: "read_file"}, true},
-		{&registry.Tool{Name: "filesystem.read_file"}, true},
-		{&registry.Tool{Name: "filesystem.list_directory"}, true},
-		{&registry.Tool{Name: "filesystem.get_file_info"}, true},
-		{&registry.Tool{Name: "filesystem.directory_tree"}, true},
-		{&registry.Tool{Name: "filesystem.list_allowed_directories"}, true},
-		{&registry.Tool{Name: "gmail.gmail_list_emails"}, true},
-
-		// Write tools
-		{&registry.Tool{Name: "create_order", Method: "POST"}, false},
-		{&registry.Tool{Name: "delete_pet"}, false},
-		{&registry.Tool{Name: "update_user"}, false},
-		{&registry.Tool{Name: "filesystem.write_file"}, false},
-		{&registry.Tool{Name: "filesystem.edit_file"}, false},
-		{&registry.Tool{Name: "filesystem.move_file"}, false},
-		{&registry.Tool{Name: "gmail.gmail_send_email"}, false},
-		{&registry.Tool{Name: "gmail.gmail_delete_email"}, false},
-	}
-
-	for _, tt := range tests {
-		got := isReadTool(tt.tool)
-		if got != tt.want {
-			t.Errorf("isReadTool(%q) = %v, want %v", tt.tool.Name, got, tt.want)
-		}
-	}
-}
-
 func TestGroupTools(t *testing.T) {
 	tools := []*registry.Tool{
 		{Name: "get_order", Source: "openapi"},

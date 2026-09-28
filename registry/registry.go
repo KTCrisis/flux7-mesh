@@ -18,6 +18,17 @@ type Tool struct {
 	Source      string            `json:"source"`              // "openapi", "mcp", or "cli"
 	MCPServer   string            `json:"mcp_server,omitempty"`
 	CLIMeta     *CLIToolMeta      `json:"cli_meta,omitempty"`  // CLI-specific metadata
+	Annotations *Annotations      `json:"annotations,omitempty"` // upstream MCP hints, nil if none
+}
+
+// Annotations are the behaviour hints an upstream MCP server declares for a
+// tool. Pointers keep "absent" apart from "false". They are claims from the
+// server, used to suggest a policy, never to relax one.
+type Annotations struct {
+	ReadOnly    *bool `json:"read_only,omitempty"`
+	Destructive *bool `json:"destructive,omitempty"`
+	Idempotent  *bool `json:"idempotent,omitempty"`
+	OpenWorld   *bool `json:"open_world,omitempty"`
 }
 
 // CLIToolMeta holds CLI-specific metadata attached to a Tool.

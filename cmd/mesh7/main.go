@@ -123,7 +123,16 @@ func convertMCPTools(tools []mcp.MCPTool) []registry.MCPToolDef {
 				RawSchema: p.Raw,
 			}
 		}
-		defs = append(defs, registry.NewMCPToolDef(t.Name, t.Description, props, t.InputSchema.Required))
+		def := registry.NewMCPToolDef(t.Name, t.Description, props, t.InputSchema.Required)
+		if a := t.Annotations; a != nil {
+			def.Annotations = &registry.Annotations{
+				ReadOnly:    a.ReadOnlyHint,
+				Destructive: a.DestructiveHint,
+				Idempotent:  a.IdempotentHint,
+				OpenWorld:   a.OpenWorldHint,
+			}
+		}
+		defs = append(defs, def)
 	}
 	return defs
 }

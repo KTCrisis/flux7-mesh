@@ -52,6 +52,21 @@ type MCPTool struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	InputSchema MCPSchema `json:"inputSchema"`
+	// Annotations are the upstream's own hints about the tool's behaviour.
+	// Nil when the server sent none. They are claims, not facts: the spec
+	// itself says not to trust them from an untrusted server.
+	Annotations *MCPAnnotations `json:"annotations,omitempty"`
+}
+
+// MCPAnnotations mirrors the MCP tool annotations. Each hint is a pointer so
+// "not sent" stays distinct from "sent as false": readOnlyHint=false is a
+// statement, its absence is not.
+type MCPAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
 }
 
 // MCPSchema describes the input parameters of an MCP tool.
