@@ -58,7 +58,7 @@ class TestObserveMode:
     def test_observe_still_calls_decide(self, mesh):
         mesh.decide.return_value = Decision(action=Action.DENY, tool="Bash")
         decide(_payload(), mesh)
-        mesh.decide.assert_called_once_with("Bash", {"command": "ls"})
+        mesh.decide.assert_called_once_with("Bash", {"command": "ls"}, session_id="sess-1")
 
     def test_observe_stays_silent_on_allow(self, mesh):
         """An allow must not suppress the prompt the operator would have seen."""
@@ -217,3 +217,19 @@ def test_mesh7_token_env_reaches_the_client(monkeypatch):
     monkeypatch.delenv("MESH7_TOKEN")
     hook_cli.decide({"tool_name": "Bash", "tool_input": {"command": "ls"}})
     assert seen.get("token") is None
+
+
+class TestSession:
+    """The harness session reaches the mesh, so traces group by session."""
+
+    def test_session_id_is_forwarded(self, mesh):
+        mesh.decide.return_value = Decision(action=Action.ALLOW, tool="Bash")
+        decide(_payload(), mesh)
+        assert mesh.decide.call_args.kwargs["session_id"] == "sess-1"
+
+    def test_missing_session_id_sends_none(self, mesh):
+        mesh.decide.return_value = Decision(action=Action.ALLOW, tool="Bash")
+        payload = _payload()
+        del payload["session_id"]
+        decide(payload, mesh)
+        assert mesh.decide.call_args.kwargs["session_id"] is None

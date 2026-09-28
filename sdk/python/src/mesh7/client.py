@@ -84,11 +84,21 @@ class AgentMesh:
             return fields
         return {"agent": self._agent, **fields}
 
-    def decide(self, name: str, arguments: dict[str, Any] | None = None) -> Decision:
-        """Evaluate policy without executing. Returns allow/deny/human_approval."""
+    def decide(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        session_id: str | None = None,
+    ) -> Decision:
+        """Evaluate policy without executing. Returns allow/deny/human_approval.
+
+        session_id, when given, is sent as ``X-Session-Id`` so the trace of
+        this decision joins the caller's session.
+        """
         resp = self._session.post(
             f"{self._url}/decide",
             json=self._body(tool=name, arguments=arguments or {}),
+            headers={"X-Session-Id": session_id} if session_id else None,
             timeout=self._timeout,
         )
         body = resp.json() if resp.content else {}
