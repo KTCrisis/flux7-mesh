@@ -193,9 +193,18 @@ func parsePolicyEditPath(escaped string) (agent, tool string, ok bool) {
 	return a, t, true
 }
 
+// writeAtomic replaces path through a rename, keeping the file's mode: a
+// policy file made group-writable by hand stays so.
 func writeAtomic(path string, data []byte) error {
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, mode); err != nil { // WriteFile's mode passes through umask
 		return err
 	}
 	return os.Rename(tmp, path)
