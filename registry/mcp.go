@@ -62,6 +62,19 @@ func (r *Registry) LoadMCP(serverName string, tools []MCPToolDef) {
 	}
 }
 
+// ByServer returns the tools loaded from one MCP server.
+func (r *Registry) ByServer(serverName string) []*Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []*Tool
+	for _, t := range r.tools {
+		if t.MCPServer == serverName {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // RemoveByServer removes all tools from a given MCP server.
 func (r *Registry) RemoveByServer(serverName string) {
 	r.mu.Lock()

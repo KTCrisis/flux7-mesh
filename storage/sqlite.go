@@ -31,7 +31,7 @@ func Open(path string) (*sql.DB, error) {
 
 // schemaVersion is the migration level this build expects. Bump it with every
 // new `if version < N` block below.
-const schemaVersion = 2
+const schemaVersion = 3
 
 func migrate(db *sql.DB) error {
 	var version int
@@ -80,11 +80,30 @@ func migrate(db *sql.DB) error {
 		stmts := []string{
 			`ALTER TABLE grants ADD COLUMN approval_id TEXT DEFAULT ''`,
 			`ALTER TABLE grants ADD COLUMN origin_trace_id TEXT DEFAULT ''`,
-			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+			`PRAGMA user_version = 2`,
 		}
 		for _, s := range stmts {
 			if _, err := db.Exec(s); err != nil {
 				return fmt.Errorf("schema v2: %w", err)
+			}
+		}
+	}
+
+	// v3 pins the tool catalogue of each upstream MCP server (package pin).
+	if version < 3 {
+		stmts := []string{
+			`CREATE TABLE IF NOT EXISTS tool_pins (
+				tool TEXT PRIMARY KEY,
+				server TEXT NOT NULL,
+				fingerprint TEXT NOT NULL,
+				description TEXT DEFAULT '',
+				pinned_at TEXT NOT NULL
+			)`,
+			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("schema v3: %w", err)
 			}
 		}
 	}

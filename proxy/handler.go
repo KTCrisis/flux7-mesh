@@ -22,6 +22,7 @@ import (
 	meshexec "github.com/KTCrisis/flux7-mesh/exec"
 	"github.com/KTCrisis/flux7-mesh/grant"
 	"github.com/KTCrisis/flux7-mesh/internal/match"
+	"github.com/KTCrisis/flux7-mesh/pin"
 	"github.com/KTCrisis/flux7-mesh/policy"
 	"github.com/KTCrisis/flux7-mesh/ratelimit"
 	"github.com/KTCrisis/flux7-mesh/registry"
@@ -55,6 +56,7 @@ type Handler struct {
 	Registry         *registry.Registry
 	Policy           *policy.Engine
 	PolicyEditing    *PolicyEditing // nil: PUT /policies/... answers 501
+	Pins             *pin.Store     // nil: catalogue pinning off
 	Traces           *trace.Store
 	Approvals        *approval.Store
 	RateLimiter      *ratelimit.Limiter
@@ -106,6 +108,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Control plane: operator actions, require admin auth ---
 	case r.Method == "GET" && r.URL.Path == "/tools/decisions":
 		h.admin(r, w, h.handleToolDecisions)
+	case r.Method == "GET" && r.URL.Path == "/tools/pins":
+		h.admin(r, w, h.handlePinsPending)
+	case r.Method == "POST" && r.URL.Path == "/tools/pins/accept":
+		h.admin(r, w, h.handlePinsAccept)
 	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/policies/"):
 		h.admin(r, w, h.handlePolicyEdit)
 	case r.Method == "GET" && r.URL.Path == "/traces":
@@ -259,7 +265,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Evaluate policy, then apply the tool's own floor (dynamic dispatchers only)
-	decision := policy.Tighten(h.Policy.Evaluate(agentID, toolName, req.Params), tool.DispatchFloor())
+	decision := policy.Tighten(h.Policy.Evaluate(agentID, toolName, req.Params), h.Floor(tool))
 	slog.Info("policy evaluated",
 		"agent", agentID, "tool", toolName,
 		"action", decision.Action, "rule", decision.Rule,
@@ -488,7 +494,22 @@ func (h *Handler) dispatchFloor(toolName string) string {
 	if tool == nil {
 		tool = h.Registry.ResolveCLI(toolName)
 	}
-	return tool.DispatchFloor()
+	return h.Floor(tool)
+}
+
+// Floor is the least permissive action a tool tolerates whatever the policy
+// says: the dispatcher floor of a CLI catch-all, and the pin floor of an
+// upstream tool that is new (deny) or changed (human_approval) since the
+// catalogue was last accepted. The stricter of the two wins. Nil-safe.
+func (h *Handler) Floor(tool *registry.Tool) string {
+	if tool == nil {
+		return ""
+	}
+	floor, pf := tool.DispatchFloor(), h.Pins.Floor(tool.Name)
+	if floor == "" || pf == "" {
+		return floor + pf // at most one is set
+	}
+	return policy.Tighten(policy.Decision{Action: floor}, pf).Action
 }
 
 func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
@@ -736,6 +757,7 @@ type toolDecision struct {
 	Source         string                  `json:"source"`
 	MCPServer      string                  `json:"mcp_server,omitempty"`
 	Classification registry.Classification `json:"classification"`
+	Pin            pin.Status              `json:"pin,omitempty"` // "", pinned, new, changed
 	policy.StaticDecision
 }
 
@@ -755,7 +777,7 @@ func (h *Handler) handleToolDecisions(w http.ResponseWriter, r *http.Request) {
 	out := make([]toolDecision, 0, len(tools))
 	for _, t := range tools {
 		sd := h.Policy.Explain(agent, t.Name)
-		floor := t.DispatchFloor()
+		floor := h.Floor(t)
 		sd.Action = policy.Tighten(policy.Decision{Action: sd.Action}, floor).Action
 		for i := range sd.Conditional {
 			sd.Conditional[i].Action = policy.Tighten(policy.Decision{Action: sd.Conditional[i].Action}, floor).Action
@@ -765,6 +787,7 @@ func (h *Handler) handleToolDecisions(w http.ResponseWriter, r *http.Request) {
 			Source:         t.Source,
 			MCPServer:      t.MCPServer,
 			Classification: registry.Classify(t),
+			Pin:            h.Pins.Status(t.Name),
 			StaticDecision: sd,
 		})
 	}

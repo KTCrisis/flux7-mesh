@@ -43,6 +43,12 @@ type Config struct {
 	// default: an operator on their own machine usually wants the full list.
 	// Calls are enforced either way; hiding is not the security boundary.
 	HideDeniedTools bool `yaml:"hide_denied_tools,omitempty"`
+
+	// PinTools fingerprints the catalogue of every upstream MCP server
+	// (trust on first use, kept in storage_path). A tool added later is
+	// denied and a changed one asks for approval until the operator accepts
+	// it (POST /tools/pins/accept). Off by default.
+	PinTools bool `yaml:"pin_tools,omitempty"`
 }
 
 // AuthConfig holds authentication settings.
