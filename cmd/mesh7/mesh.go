@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"github.com/KTCrisis/flux7-mesh/pin"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,6 +34,7 @@ type meshState struct {
 	traces     *trace.Store
 	approvals  *approval.Store
 	grants     *grant.Store
+	pins       *pin.Store // nil unless pin_tools
 	handler    *proxy.Handler
 	mcpManager *mcp.Manager
 	mcpHTTP    *mcp.HTTPHandler
@@ -152,8 +155,10 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.grants = grant.NewStore()
 
 	// Durable storage (SQLite)
+	var stateDB *sql.DB
 	if cfg.StoragePath != "" {
-		stateDB, err := storage.Open(cfg.StoragePath)
+		var err error
+		stateDB, err = storage.Open(cfg.StoragePath)
 		if err != nil {
 			return nil, fmt.Errorf("open state database %s: %w", cfg.StoragePath, err)
 		}
@@ -171,6 +176,19 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 			slog.Info("grants restored from disk", "count", n)
 		}
 		slog.Info("durable state ready", "path", cfg.StoragePath)
+	}
+
+	// Catalogue pinning: fingerprints of upstream MCP tools, kept with the
+	// rest of the durable state so trust on first use happens once.
+	if cfg.PinTools {
+		if stateDB == nil {
+			slog.Warn("pin_tools without storage_path: pins live in memory and are re-trusted at every start")
+		}
+		pins, err := pin.NewStore(stateDB)
+		if err != nil {
+			return nil, fmt.Errorf("tool pins: %w", err)
+		}
+		m.pins = pins
 	}
 
 	// Rate limiter
@@ -206,6 +224,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.handler.Approvals = m.approvals
 	m.handler.RateLimiter = limiter
 	m.handler.Grants = m.grants
+	m.handler.Pins = m.pins
 	m.handler.SupervisorCfg = cfg.Supervisor
 	m.handler.Version = version
 	m.handler.Commit = commit
@@ -272,6 +291,16 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 				m.mcpManager.Add(client)
 				defs := convertMCPTools(client.Tools())
 				m.reg.LoadMCP(sc.Name, defs)
+				if m.pins != nil {
+					if err := m.pins.Observe(sc.Name, m.reg.ByServer(sc.Name)); err != nil {
+						slog.Error("pin catalogue", "server", sc.Name, "error", err)
+					}
+					for _, v := range m.pins.Pending() {
+						if v.Server == sc.Name {
+							slog.Warn("upstream tool held back until accepted", "tool", v.Tool, "status", v.Status)
+						}
+					}
+				}
 				for _, d := range defs {
 					slog.Info("  MCP tool registered", "name", sc.Name+"."+d.Name, "server", sc.Name)
 				}
