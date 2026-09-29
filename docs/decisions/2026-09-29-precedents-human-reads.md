@@ -1,0 +1,6 @@
+# Precedents are human approvals of exactly this tool and agent, for reads only
+
+- **Problem**: in production, a `filesystem.write_file` was auto-approved as `supervisor:mem7`: precedents were keyed on tool and agent, not on the arguments, so approved writes in a project let a write anywhere through; the count read a semantic search of 10 results, counted auto-approvals themselves (3, then 4, 5, 6 without a human) and sup7's approvals like a human's.
+- **Decision**: decisions are tagged `by:<human|supervisor|mem7|system>`; precedents are read with `memory_list` on exact tags (human approvals of this tool and agent; one refusal from anyone blocks); only named read tools (`registry.Classify`) may be approved from precedents, `auto_approve_writes` restores the former behaviour; `GET /approvals/precedents` and `/forget` show and reset them.
+- **Why**: a precedent replays a human's trust; an automatic decision is not trust, and a write's risk lives in the arguments a precedent ignores.
+- **Where**: `approval/memory.go`, `approval/store.go` (`AutoApprovable`, `Precedents`), `cmd/mesh7/mesh.go`, `proxy/handler.go`; doc `docs/mem7-auto-approve.md` and docs.flux7.art. Untagged decisions from before no longer count.
