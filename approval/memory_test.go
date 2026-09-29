@@ -368,3 +368,65 @@ func TestAutoApprovableGatesPrecedents(t *testing.T) {
 		t.Fatal("a read with three approved precedents was not auto-approved")
 	}
 }
+
+// mem7's memory_list output, as the daemon answered on 2026-09-29.
+const realList = `6 memories:
+- supervisor:decision:d85e5634f1e19556 [supervisor, decision, approved, filesystem] (by supervisor) — 2026-09-29T14:09:45Z
+- decision.filesystem.write_file.d85e5634f1e19556 [decision, approved, filesystem.write_file, by:supervisor, agent:claude] (by flux7-mesh) — 2026-09-29T14:09:45Z
+- decision.filesystem.write_file.9b061ecde8c29150 [decision, approved, filesystem.write_file, agent:claude] (by agent-mesh) — 2026-05-08T13:25:19Z
+- decision.fs.read.a1 [decision, approved, fs.read, by:human, agent:claude] (by flux7-mesh) — 2026-09-29T10:00:00Z
+- decision.fs.read.a2 [decision, approved, fs.read, by:human, agent:claude] (by flux7-mesh) — 2026-09-29T11:00:00Z
+- decision.fs.read.a3 [decision, approved, fs.read, by:human, agent:claude] (by flux7-mesh) — 2026-09-29T12:00:00Z`
+
+func TestListPrecedentsGroupsByToolAndAgent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1,
+			"result": map[string]any{"content": []map[string]any{{"type": "text", "text": realList}}}})
+		w.Write(resp)
+	}))
+	defer srv.Close()
+
+	s := NewStore(time.Minute)
+	s.MemoryReader = NewMemoryReader(srv.URL, "", 3)
+	s.AutoApprovable = func(tool string) bool { return tool == "fs.read" }
+	list, err := s.Precedents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Precedent{}
+	for _, p := range list {
+		got[p.Tool] = p
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 couples (sup7's own facts skipped), got %+v", list)
+	}
+	w := got["filesystem.write_file"]
+	if w.OtherApproved != 1 || w.Untagged != 1 || w.HumanApproved != 0 || w.AutoApprovable || w.WouldAutoApprove {
+		t.Fatalf("write_file: %+v", w)
+	}
+	r := got["fs.read"]
+	if r.HumanApproved != 3 || !r.WouldAutoApprove || r.Last != "2026-09-29T12:00:00Z" || r.Agent != "claude" {
+		t.Fatalf("fs.read: %+v", r)
+	}
+}
+
+func TestForgetPrecedentsTargetsOneCouple(t *testing.T) {
+	var args map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		json.NewDecoder(r.Body).Decode(&payload)
+		args = payload["params"].(map[string]any)["arguments"].(map[string]any)
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Forgot 3 memories"}]}}`))
+	}))
+	defer srv.Close()
+	mr := NewMemoryReader(srv.URL, "", 3)
+	if _, err := mr.ForgetPrecedents("fs.read", ""); err == nil {
+		t.Fatal("forgetting without an agent must be refused (it would wipe every agent)")
+	}
+	if _, err := mr.ForgetPrecedents("fs.read", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(args["tags"]) != "[decision fs.read agent:claude]" {
+		t.Fatalf("forget tags = %v", args["tags"])
+	}
+}

@@ -128,6 +128,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.admin(r, w, h.handleOTELTraces)
 	case r.Method == "GET" && r.URL.Path == "/approvals":
 		h.admin(r, w, h.handleListApprovals)
+	case r.Method == "GET" && r.URL.Path == "/approvals/precedents":
+		h.admin(r, w, h.handlePrecedents)
+	case r.Method == "POST" && r.URL.Path == "/approvals/precedents/forget":
+		h.admin(r, w, h.handleForgetPrecedents)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/approvals/") && !strings.Contains(strings.TrimPrefix(r.URL.Path, "/approvals/"), "/"):
 		h.admin(r, w, h.handleGetApproval)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/approve") && strings.HasPrefix(r.URL.Path, "/approvals/"):
@@ -1065,6 +1069,46 @@ func (h *Handler) toApprovalView(pa *approval.PendingApproval) approvalView {
 		v.ResolvedAt = &pa.ResolvedAt
 	}
 	return v
+}
+
+// handlePrecedents lists what mem7 remembers per tool and agent: human
+// approvals (the only ones that count), other approvals, refusals, and
+// whether the next call would pass on precedents alone.
+func (h *Handler) handlePrecedents(w http.ResponseWriter, r *http.Request) {
+	list, err := h.Approvals.Precedents()
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"enabled": false, "reason": err.Error(), "precedents": []any{}})
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"enabled":       true,
+		"min_approvals": h.Approvals.MemoryReader.MinApprovals(),
+		"precedents":    list,
+	})
+}
+
+// handleForgetPrecedents drops every decision of one tool and agent from
+// mem7: that couple starts again from no precedent.
+func (h *Handler) handleForgetPrecedents(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Tool  string `json:"tool"`
+		Agent string `json:"agent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "expected JSON {\"tool\", \"agent\"}"})
+		return
+	}
+	if h.Approvals == nil || h.Approvals.MemoryReader == nil {
+		writeJSON(w, 409, map[string]string{"error": "auto-approval from precedents is off"})
+		return
+	}
+	result, err := h.Approvals.MemoryReader.ForgetPrecedents(body.Tool, body.Agent)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	slog.Info("precedents forgotten", "tool", body.Tool, "agent", body.Agent, "mem7", result)
+	writeJSON(w, 200, map[string]string{"tool": body.Tool, "agent": body.Agent, "result": result})
 }
 
 func (h *Handler) handleListApprovals(w http.ResponseWriter, r *http.Request) {

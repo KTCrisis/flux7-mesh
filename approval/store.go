@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -410,4 +411,24 @@ func newID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// Precedents lists what mem7 remembers per tool and agent, with whether the
+// next call would be approved from precedents alone (same rules as
+// TryAutoResolveSafe, injection aside).
+func (s *Store) Precedents() ([]Precedent, error) {
+	if s == nil || s.MemoryReader == nil {
+		return nil, fmt.Errorf("auto-approval from precedents is off (no memory reader)")
+	}
+	list, err := s.MemoryReader.ListPrecedents()
+	if err != nil {
+		return nil, err
+	}
+	min := s.MemoryReader.MinApprovals()
+	for i := range list {
+		p := &list[i]
+		p.AutoApprovable = s.AutoApprovable == nil || s.AutoApprovable(p.Tool)
+		p.WouldAutoApprove = p.AutoApprovable && p.Refused == 0 && p.HumanApproved >= min
+	}
+	return list, nil
 }
