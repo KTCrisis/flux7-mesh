@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -41,7 +43,7 @@ type MemoryReader struct {
 
 // AutoResolveResult is the outcome of checking mem7 for past decisions.
 type AutoResolveResult struct {
-	Action     string  // "approve" or "escalate"
+	Action     string // "approve" or "escalate"
 	Reason     string
 	Confidence float64
 	Approved   int
@@ -91,69 +93,91 @@ func NewMemoryReader(url, token string, minApprovals int) *MemoryReader {
 	}
 }
 
-// AutoResolve checks mem7 for past decisions matching tool+agent and returns
-// "approve" if the pattern is clear (>= minApprovals with 0 rejections),
-// or "escalate" to defer to human/external supervisor.
+// AutoResolve counts the precedents of exactly this tool and agent and
+// returns "approve" when the pattern is clear (>= minApprovals human
+// approvals, no refusal), or "escalate" to defer to human/external supervisor.
+//
+// Only human approvals count: an approval by a supervisor (sup7) or by
+// auto-approval itself (supervisor:mem7) is not a precedent, or an automatic
+// decision would feed the next one and grow without a human (seen on
+// 2026-09-29: "3 prior approvals", then 4, 5, 6). A refusal from anyone
+// blocks. Facts are selected by exact tags (memory_list: every tag must
+// match), not by semantic search, so another tool's decisions never count
+// and no refusal is lost past a result limit.
 func (m *MemoryReader) AutoResolve(tool, agentID string) AutoResolveResult {
 	if m == nil || m.url == "" {
 		return AutoResolveResult{Action: "escalate", Reason: "no memory server"}
 	}
-
-	text, err := m.search(tool, agentID)
-	if err != nil {
-		slog.Warn("mem7 query failed, escalating", "tool", tool, "agent", agentID, "error", err)
-		return AutoResolveResult{Action: "escalate", Reason: "mem7 query failed"}
+	scope := []string{"decision", tool}
+	if agentID != "" {
+		scope = append(scope, "agent:"+agentID)
 	}
-
-	approved, rejected := countDecisions(text)
-
-	if approved >= m.minApprovals && rejected == 0 {
-		return AutoResolveResult{
-			Action:     "approve",
-			Reason:     fmt.Sprintf("mem7: %d prior approvals, 0 rejections", approved),
-			Confidence: 0.9,
-			Approved:   approved,
-			Rejected:   rejected,
+	approved, err := m.count(append([]string{"approved", "by:human"}, scope...))
+	if err == nil {
+		var rejected int
+		rejected, err = m.count(append([]string{"denied"}, scope...))
+		if err == nil {
+			return m.verdict(approved, rejected)
 		}
 	}
+	slog.Warn("mem7 query failed, escalating", "tool", tool, "agent", agentID, "error", err)
+	return AutoResolveResult{Action: "escalate", Reason: "mem7 query failed"}
+}
 
-	if rejected > 0 {
-		return AutoResolveResult{
-			Action:     "escalate",
-			Reason:     fmt.Sprintf("mem7: %d approvals, %d rejections — escalating", approved, rejected),
-			Approved:   approved,
-			Rejected:   rejected,
-		}
-	}
-
-	return AutoResolveResult{
-		Action:   "escalate",
-		Reason:   fmt.Sprintf("mem7: %d approvals (need %d) — escalating", approved, m.minApprovals),
-		Approved: approved,
-		Rejected: rejected,
+func (m *MemoryReader) verdict(approved, rejected int) AutoResolveResult {
+	switch {
+	case rejected > 0:
+		return AutoResolveResult{Action: "escalate", Approved: approved, Rejected: rejected,
+			Reason: fmt.Sprintf("mem7: %d human approvals, %d refusals — escalating", approved, rejected)}
+	case approved >= m.minApprovals:
+		return AutoResolveResult{Action: "approve", Confidence: 0.9, Approved: approved,
+			Reason: fmt.Sprintf("mem7: %d prior human approvals, 0 refusals", approved)}
+	default:
+		return AutoResolveResult{Action: "escalate", Approved: approved,
+			Reason: fmt.Sprintf("mem7: %d human approvals (need %d) — escalating", approved, m.minApprovals)}
 	}
 }
 
-func (m *MemoryReader) search(tool, agentID string) (string, error) {
-	query := tool
-	if agentID != "" {
-		query = tool + " " + agentID
+// Precedents returns the counts AutoResolve decides on, for display.
+func (m *MemoryReader) Precedents(tool, agentID string) (approved, rejected int, err error) {
+	if m == nil || m.url == "" {
+		return 0, 0, fmt.Errorf("no memory server")
 	}
+	scope := []string{"decision", tool}
+	if agentID != "" {
+		scope = append(scope, "agent:"+agentID)
+	}
+	if approved, err = m.count(append([]string{"approved", "by:human"}, scope...)); err != nil {
+		return
+	}
+	rejected, err = m.count(append([]string{"denied"}, scope...))
+	return
+}
 
+var listCount = regexp.MustCompile(`(?m)^(\d+) memor(?:y|ies):`)
+
+// count asks mem7 for the facts carrying every tag and returns how many.
+func (m *MemoryReader) count(tags []string) (int, error) {
+	text, err := m.call("memory_list", map[string]any{"tags": tags})
+	if err != nil {
+		return 0, err
+	}
+	if match := listCount.FindStringSubmatch(text); match != nil {
+		return strconv.Atoi(match[1])
+	}
+	if strings.Contains(text, "No memories found") || strings.TrimSpace(text) == "" {
+		return 0, nil
+	}
+	return 0, fmt.Errorf("unexpected memory_list answer: %.80q", text)
+}
+
+func (m *MemoryReader) call(tool string, arguments map[string]any) (string, error) {
 	payload := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      m.reqID.Add(1),
 		"method":  "tools/call",
-		"params": map[string]any{
-			"name": "memory_search",
-			"arguments": map[string]any{
-				"query": query,
-				"tags":  []string{"decision"},
-				"limit": 10,
-			},
-		},
+		"params":  map[string]any{"name": tool, "arguments": arguments},
 	}
-
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -198,23 +222,6 @@ func (m *MemoryReader) search(tool, agentID string) (string, error) {
 	return "", nil
 }
 
-// countDecisions parses mem7 search results and counts approval/rejection decisions.
-// Matches the exact value format written by MemoryWriter.WriteDecision:
-// "approved by X — agent:Y tool:Z" / "rejected by X — agent:Y tool:Z"
-// Uses a strict prefix match to prevent poisoning via injected text.
-func countDecisions(text string) (approved, rejected int) {
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		lower := strings.ToLower(trimmed)
-		if strings.HasPrefix(lower, "approved by ") && strings.Contains(lower, " — agent:") {
-			approved++
-		} else if strings.HasPrefix(lower, "rejected by ") && strings.Contains(lower, " — agent:") {
-			rejected++
-		}
-	}
-	return
-}
-
 // WriteDecision stores an approval decision as a fact in mem7.
 //
 // Provenance convention: flux7-mesh is recorded as the writer of the fact
@@ -243,7 +250,7 @@ func (m *MemoryWriter) WriteDecision(pa *PendingApproval, res Resolution) {
 		value += " reason:" + res.Reasoning
 	}
 
-	tags := []string{"decision", string(res.Status), pa.Tool}
+	tags := []string{"decision", string(res.Status), pa.Tool, "by:" + resolverKind(res.ResolvedBy)}
 	if pa.AgentID != "" {
 		tags = append(tags, "agent:"+pa.AgentID)
 	}
@@ -301,4 +308,20 @@ func (m *MemoryWriter) store(key, value string, tags []string) {
 	}
 
 	m.succeeded.Add(1)
+}
+
+// resolverKind tags who settled a decision, so precedents can be restricted
+// to human ones: human, supervisor (sup7), mem7 (auto-approval) or system.
+func resolverKind(resolvedBy string) string {
+	v := strings.ToLower(resolvedBy)
+	switch {
+	case v == "supervisor:mem7":
+		return "mem7"
+	case strings.HasPrefix(v, "supervisor:"), strings.HasPrefix(v, "auto:"), strings.HasPrefix(v, "bot:"):
+		return "supervisor"
+	case strings.HasPrefix(v, "system:"):
+		return "system"
+	default:
+		return "human"
+	}
 }
