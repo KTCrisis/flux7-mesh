@@ -126,3 +126,37 @@ func TestRetryWhilePendingReusesTheApproval(t *testing.T) {
 		t.Fatalf("approved retry must run once, got %q (hits %d)", out, hits.Load())
 	}
 }
+
+// A human refuses: the agent's next retry learns it once, and opens nothing.
+func TestRetryAfterDenialLearnsTheRefusal(t *testing.T) {
+	reg := registry.New()
+	reg.LoadManual(&registry.Tool{Name: "write", Source: "openapi", Method: "POST", Path: "/w", BaseURL: "http://127.0.0.1:1",
+		Params: []registry.Param{{Name: "path", In: "body", Type: "string"}}})
+	pol := policy.NewEngine([]config.Policy{{Name: "p", Agent: "*", Rules: []config.Rule{
+		{Tools: []string{"write"}, Action: "human_approval"}}}})
+	traces := trace.NewStore(50)
+	store := approval.NewStore(time.Minute)
+	s := &Server{Registry: reg, Policy: pol, Traces: traces, Approvals: store,
+		Handler: proxy.NewHandler(reg, pol, traces), AgentID: "scout7", ApprovalChannel: "queue"}
+	call := func() string {
+		res := sendRPC(t, s, rpcRequest{JSONRPC: "2.0", ID: float64(1), Method: "tools/call",
+			Params: map[string]any{"name": "write", "arguments": map[string]any{"path": "/tmp/a"}}})
+		return extractText(t, res[0])
+	}
+
+	call()
+	id := store.ListPending()[0].ID
+	if err := store.Deny(id, "human:bob"); err != nil {
+		t.Fatal(err)
+	}
+	if out := call(); !strings.Contains(out, "Approval denied by human:bob") {
+		t.Fatalf("the retry must learn the refusal, got %q", out)
+	}
+	if n := len(store.ListPending()); n != 0 {
+		t.Fatalf("pending = %d after the refusal, want 0", n)
+	}
+	// Told once: asked again later, it is a new request for a human.
+	if out := call(); !strings.Contains(out, "Approval required") {
+		t.Fatalf("a later call is a new request, got %q", out)
+	}
+}

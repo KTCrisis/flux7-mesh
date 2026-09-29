@@ -279,6 +279,29 @@ func (s *Store) ClaimApproved(agentID, tool string, params map[string]any, windo
 	return nil
 }
 
+// ClaimDenied is ClaimApproved's twin for a refusal: the agent's retry of a
+// call a human refused learns the answer once, instead of opening a new
+// approval and asking again until its patience runs out.
+func (s *Store) ClaimDenied(agentID, tool string, params map[string]any, window time.Duration) *PendingApproval {
+	want, err := json.Marshal(params)
+	if err != nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, pa := range s.pending {
+		if pa.Status != StatusDenied || pa.AgentID != agentID || pa.Tool != tool ||
+			s.claimed[id] || time.Since(pa.ResolvedAt) > window {
+			continue
+		}
+		if got, err := json.Marshal(pa.Params); err == nil && string(got) == string(want) {
+			s.claimed[id] = true
+			return pa
+		}
+	}
+	return nil
+}
+
 // FindPending returns the approval still waiting for exactly this call (same
 // agent, tool and arguments), or nil. An agent that waits by retrying the call
 // until a human decides must meet the same approval each time, not open a new

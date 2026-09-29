@@ -651,6 +651,22 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 			}, nil
 		}
 
+		// A human refused exactly this call: the agent's retry learns it, once.
+		if s.Approvals != nil && !s.SupervisorMode {
+			if pa := s.Approvals.ClaimDenied(s.AgentID, toolName, arguments, s.Approvals.Timeout()); pa != nil {
+				who := pa.ResolvedBy
+				if who == "" {
+					who = "a human"
+				}
+				return map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": fmt.Sprintf("Approval denied by %s for %s (id: %s): do not retry this call.", who, toolName, pa.ID[:8])},
+					},
+					"isError": true,
+				}, nil
+			}
+		}
+
 		// An agent waiting for the decision retries the same call: it meets the
 		// approval it already opened, and the retry is neither a new request
 		// in the queue nor a new trace line.
