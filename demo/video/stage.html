@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>mesh7 demo stage</title>
+<!-- The recording stage: the agent's terminal (ttyd) on the left, the console
+     on the right, a caption bar on top. record.mjs drives both frames and
+     writes the captions; the page itself does nothing on its own. -->
+<style>
+  :root { --ground:#0a0e13; --line:#1e2a37; --text:#c8d4df; --muted:#6c7e90; --accent:#62d6e0; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--ground); color:var(--text);
+    font-family:"JetBrains Mono", ui-monospace, monospace; overflow:hidden; }
+  header { height:120px; padding:22px 36px; border-bottom:1px solid var(--line);
+    display:flex; flex-direction:column; justify-content:center; gap:8px; }
+  #title { font-size:34px; font-weight:700; letter-spacing:.01em; }
+  #title b { color:var(--accent); font-weight:700; }
+  #sub { font-size:19px; color:var(--muted); min-height:1.3em; }
+  header, #title, #sub { transition: opacity .35s ease; }
+  main { display:grid; grid-template-columns: 40% 60%; height:calc(100% - 120px); }
+  .pane { position:relative; border-right:1px solid var(--line); }
+  .pane:last-child { border-right:0; }
+  .tag { position:absolute; top:10px; right:14px; z-index:2; font-size:13px; color:var(--muted);
+    letter-spacing:.12em; text-transform:uppercase; }
+  iframe { width:100%; height:100%; border:0; display:block; background:var(--ground); }
+  /* The console is laid out for a wide screen: shown at 85 %, sidebar folded, so a row fits. */
+  #console { width:118%; height:118%; transform:scale(.85); transform-origin:0 0; }
+  .pane { overflow:hidden; }
+  .pane.hot { box-shadow: inset 0 0 0 2px var(--accent); }
+</style>
+</head>
+<body>
+<header><div id="title"></div><div id="sub"></div></header>
+<main>
+  <div class="pane" id="p-term"><span class="tag">agent</span><iframe id="term"></iframe></div>
+  <div class="pane" id="p-console"><span class="tag">console mesh7</span><iframe id="console"></iframe></div>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('term').src = q.get('term') || 'http://127.0.0.1:7691';
+  document.getElementById('console').src = q.get('console') || 'http://localhost:3118/mesh/approvals';
+  // Called by record.mjs. Title may carry one <b>accent</b>.
+  window.caption = (title, sub = '') => {
+    const t = document.getElementById('title'), s = document.getElementById('sub');
+    t.style.opacity = s.style.opacity = 0;
+    setTimeout(() => { t.innerHTML = title; s.textContent = sub; t.style.opacity = s.style.opacity = 1; }, 350);
+  };
+  window.focusPane = (id) => {
+    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('hot', p.id === 'p-' + id));
+  };
+</script>
+</body>
+</html>

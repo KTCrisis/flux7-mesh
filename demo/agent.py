@@ -41,7 +41,23 @@ class Session:
         res = self.rpc("tools/call", {"name": tool, "arguments": args})
         if "error" in res:
             return "ERROR " + res["error"]["message"]
-        return "\n".join(c.get("text", "") for c in res["result"].get("content", []))
+        return readable("\n".join(c.get("text", "") for c in res["result"].get("content", [])))
+
+
+def readable(text):
+    """mesh7 returns the upstream MCP result serialized as text; unwrap it so
+    the demo shows what the CRM answered, one JSON line per value."""
+    try:
+        inner = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(inner, dict) and "content" in inner:
+        text = "\n".join(c.get("text", "") for c in inner["content"])
+        try:
+            return json.dumps(json.loads(text), ensure_ascii=False)
+        except ValueError:
+            return text
+    return text
 
 
 def step(title, text):

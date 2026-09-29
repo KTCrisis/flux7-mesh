@@ -5,6 +5,7 @@
 #   ./run.sh start      start the demo mesh (and the console if found)
 #   ./run.sh rugpull    the CRM "updates itself"; restart the mesh to see it
 #   ./run.sh verify     check the trace chain, then show a tampered copy failing
+#   ./run.sh tamper     write state/tampered.jsonl, one approval rewritten into an allow
 #   ./run.sh reset      stop and wipe demo state (pins, approvals, traces)
 #   ./run.sh stop
 #
@@ -12,6 +13,7 @@
 # frontend, default ~/flux7-console/frontend) can be overridden.
 set -eu
 cd "$(dirname "$0")"
+DEMO="$PWD"
 MESH7="${MESH7:-mesh7}"
 CONSOLE_DIR="${CONSOLE_DIR:-$HOME/flux7-console/frontend}"
 export MESH_TRACE_KEY="${MESH_TRACE_KEY:-demo-key-not-a-secret}"
@@ -26,7 +28,12 @@ stop_pid() {
   i=0; while kill -0 "$pid" 2>/dev/null; do i=$((i+1)); [ $i -gt 40 ] && kill -9 "$pid" 2>/dev/null; sleep 0.25; done
 }
 stop_mesh() { stop_pid state/mesh.pid; }
-stop_console() { stop_pid state/console.pid; }
+# next start forks a next-server child: the console runs in its own process
+# group (setsid) and is stopped as a group, or the child keeps the port.
+stop_console() {
+  [ -f state/console.pid ] && kill -- -"$(cat state/console.pid)" 2>/dev/null
+  stop_pid state/console.pid
+}
 
 start_mesh() {
   stop_mesh
@@ -43,17 +50,16 @@ start_mesh() {
 start_console() {
   [ -d "$CONSOLE_DIR/.next" ] || { echo "console: no build in $CONSOLE_DIR (skipped)"; return; }
   stop_console
-  (cd "$CONSOLE_DIR" && MESH_URL=http://localhost:9191 MESH_ADMIN_TOKEN= POLICY_DIR="$OLDPWD/policies" \
-     ./node_modules/.bin/next start -H 127.0.0.1 -p 3118 > "$OLDPWD/state/console.log" 2>&1 &
-   echo $! > "$OLDPWD/state/console.pid")
+  (cd "$CONSOLE_DIR" && MESH_URL=http://localhost:9191 MESH_ADMIN_TOKEN= POLICY_DIR="$DEMO/policies" \
+     setsid ./node_modules/.bin/next start -H 127.0.0.1 -p 3118 > "$DEMO/state/console.log" 2>&1 &
+   echo $! > "$DEMO/state/console.pid")
   echo "console http://localhost:3118/mesh/tools"
 }
 
 case "${1:-}" in
   start)   start_mesh; start_console ;;
   rugpull) touch state/rugpull; start_mesh; echo "the CRM changed its catalogue: see the banner on the Tools page" ;;
-  verify)
-    curl -s localhost:9191/traces/verify; echo
+  tamper)
     cp state/traces.jsonl state/tampered.jsonl
     # Change one decision in place, as someone covering their tracks would:
     # the first approval becomes an allow, nothing else moves.
@@ -66,8 +72,12 @@ for i, l in enumerate(lines):
         break
 open("state/tampered.jsonl", "w").write("".join(lines))
 PY
+    ;;
+  verify)
+    curl -s localhost:9191/traces/verify; echo
+    "$0" tamper
     "$MESH7" trace verify state/tampered.jsonl || true ;;
   reset)   stop_mesh; stop_console; rm -rf state; echo "demo state wiped" ;;
   stop)    stop_mesh; stop_console; echo "stopped" ;;
-  *) sed -n '2,12p' "$0"; exit 2 ;;
+  *) sed -n '2,13p' "$0"; exit 2 ;;
 esac
