@@ -451,3 +451,48 @@ func TestHTTPTraceCarriesDelegatedUser(t *testing.T) {
 		t.Fatal("no trace entry recorded for the tool call")
 	}
 }
+
+// A gateway in front of the mesh (Kong, an agent runtime) sends a
+// traceparent: the mesh's span for the call must join that trace, with the
+// gateway's span as its parent, or the two halves never meet in a collector.
+func TestHTTPToolsCallJoinsCallerTrace(t *testing.T) {
+	h := testHTTPHandler()
+	w := postMCP(h, "", rpcRequest{JSONRPC: "2.0", ID: float64(1), Method: "initialize"})
+	sid := w.Header().Get("Mcp-Session-Id")
+
+	const traceID, parent = "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
+	body, _ := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: float64(2), Method: "tools/call",
+		Params: map[string]any{"name": "echo", "arguments": map[string]any{"msg": "hi"}}})
+	r := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Mcp-Session-Id", sid)
+	r.Header.Set("Traceparent", "00-"+traceID+"-"+parent+"-01")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+
+	got := h.Traces.Query("", "echo", 10)
+	if len(got) != 1 {
+		t.Fatalf("expected one trace entry for echo, got %d", len(got))
+	}
+	e := got[0]
+	if e.TraceID != traceID || e.ParentSpanID != parent {
+		t.Fatalf("entry not in the caller's trace: trace %q parent %q", e.TraceID, e.ParentSpanID)
+	}
+	if len(e.SpanID) != 16 || e.SpanID == parent {
+		t.Fatalf("the mesh span must be its own, got %q", e.SpanID)
+	}
+}
+
+// Without a traceparent the call still gets a trace of its own, set before
+// anything is recorded.
+func TestHTTPToolsCallOwnTraceWithoutCaller(t *testing.T) {
+	h := testHTTPHandler()
+	w := postMCP(h, "", rpcRequest{JSONRPC: "2.0", ID: float64(1), Method: "initialize"})
+	sid := w.Header().Get("Mcp-Session-Id")
+	postMCP(h, sid, rpcRequest{JSONRPC: "2.0", ID: float64(2), Method: "tools/call",
+		Params: map[string]any{"name": "echo", "arguments": map[string]any{"msg": "hi"}}})
+
+	got := h.Traces.Query("", "echo", 10)
+	if len(got) != 1 || len(got[0].TraceID) != 32 || got[0].ParentSpanID != "" {
+		t.Fatalf("expected one entry with its own trace and no parent, got %+v", got)
+	}
+}

@@ -131,7 +131,8 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	srv := h.getOrCreateSession(sessionID, ident)
-	resp := srv.HandleRequest(req)
+	tc := trace.NewContext(r.Header.Get("Traceparent"), r.Header.Get("X-Trace-Id"))
+	resp := srv.HandleRequestWith(req, tc)
 
 	// Notifications — no response body.
 	if resp.JSONRPC == "" {

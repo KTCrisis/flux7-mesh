@@ -175,6 +175,14 @@ func (s *Server) Run() error {
 // response has a zero JSONRPC field — callers should check this and skip
 // writing a response (stdio) or return 202 (HTTP).
 func (s *Server) HandleRequest(req rpcRequest) rpcResponse {
+	return s.HandleRequestWith(req, trace.Context{})
+}
+
+// HandleRequestWith handles one request within the caller's trace context: the
+// HTTP transport builds it from Traceparent (or X-Trace-Id), so a gateway in
+// front of the mesh and the mesh's own span land in the same trace. An empty
+// context gives the call a trace of its own, as on stdio.
+func (s *Server) HandleRequestWith(req rpcRequest, tc trace.Context) rpcResponse {
 	slog.Debug("MCP request", "method", req.Method, "id", req.ID)
 
 	var resp rpcResponse
@@ -193,7 +201,7 @@ func (s *Server) HandleRequest(req rpcRequest) rpcResponse {
 	case "tools/list":
 		resp.Result = s.handleToolsList()
 	case "tools/call":
-		resp.Result, resp.Error = s.handleToolsCall(req.Params)
+		resp.Result, resp.Error = s.handleToolsCall(req.Params, tc)
 	case "ping":
 		resp.Result = map[string]any{}
 	default:
@@ -434,8 +442,13 @@ func (s *Server) handleToolsList() map[string]any {
 	return map[string]any{"tools": mcpTools}
 }
 
-func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
+func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, *rpcError) {
 	start := time.Now()
+	// The call's trace is fixed here, before anything is recorded or submitted:
+	// the approval is persisted with it, and the backend is called within it.
+	if tc.TraceID == "" {
+		tc = trace.NewContext("", "")
+	}
 	toolName, _ := params["name"].(string)
 	arguments, _ := params["arguments"].(map[string]any)
 
@@ -493,14 +506,17 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 
 	if decision.Action == "deny" {
 		s.Traces.Record(trace.Entry{
-			SessionID:  s.SessionID,
-			AgentID:    s.AgentID,
-			UserID:     s.UserID,
-			Tool:       toolName,
-			Params:     arguments,
-			Policy:     "deny",
-			PolicyRule: decision.Rule,
-			LatencyMs:  time.Since(start).Milliseconds(),
+			TraceID:      tc.TraceID,
+			SpanID:       tc.SpanID,
+			ParentSpanID: tc.ParentSpanID,
+			SessionID:    s.SessionID,
+			AgentID:      s.AgentID,
+			UserID:       s.UserID,
+			Tool:         toolName,
+			Params:       arguments,
+			Policy:       "deny",
+			PolicyRule:   decision.Rule,
+			LatencyMs:    time.Since(start).Milliseconds(),
 		})
 		return map[string]any{
 			"content": []map[string]any{
@@ -525,13 +541,16 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 
 	if decision.Action == "human_approval" {
 		entry := trace.Entry{
-			SessionID:  s.SessionID,
-			AgentID:    s.AgentID,
-			UserID:     s.UserID,
-			Tool:       toolName,
-			Params:     arguments,
-			Policy:     "human_approval",
-			PolicyRule: decision.Rule,
+			TraceID:      tc.TraceID,
+			SpanID:       tc.SpanID,
+			ParentSpanID: tc.ParentSpanID,
+			SessionID:    s.SessionID,
+			AgentID:      s.AgentID,
+			UserID:       s.UserID,
+			Tool:         toolName,
+			Params:       arguments,
+			Policy:       "human_approval",
+			PolicyRule:   decision.Rule,
 		}
 
 		// Route per approval.channel: queue skips the TTY prompt entirely,
@@ -557,7 +576,7 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 					e.ApprovedBy = resolvedBy
 				})
 
-				result, statusCode, err := s.Handler.Forward(tool, arguments, trace.Context{})
+				result, statusCode, err := s.Handler.Forward(tool, arguments, tc)
 				inTok, outTok, tokSrc := resolveMCPTokens(toolName, arguments, result)
 				s.Traces.Update(entry.TraceID, func(e *trace.Entry) {
 					e.StatusCode = statusCode
@@ -665,11 +684,14 @@ func (s *Server) handleToolsCall(params map[string]any) (any, *rpcError) {
 	}
 
 	// Forward to backend
-	result, statusCode, err := s.Handler.Forward(tool, arguments, trace.Context{})
+	result, statusCode, err := s.Handler.Forward(tool, arguments, tc)
 	inTok, outTok, tokSrc := resolveMCPTokens(toolName, arguments, result)
 
 	// Trace
 	entry := trace.Entry{
+		TraceID:               tc.TraceID,
+		SpanID:                tc.SpanID,
+		ParentSpanID:          tc.ParentSpanID,
 		SessionID:             s.SessionID,
 		AgentID:               s.AgentID,
 		UserID:                s.UserID,
