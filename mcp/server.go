@@ -651,6 +651,20 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 			}, nil
 		}
 
+		// An agent waiting for the decision retries the same call: it meets the
+		// approval it already opened, and the retry is neither a new request
+		// in the queue nor a new trace line.
+		if !s.SupervisorMode {
+			if waiting := s.Approvals.FindPending(s.AgentID, toolName, arguments); waiting != nil {
+				remaining := waiting.Remaining(s.Approvals.Timeout())
+				return map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": approvalRequiredText(waiting.ID[:8], toolName, int(remaining.Seconds()))},
+					},
+				}, nil
+			}
+		}
+
 		// The trace ID goes in at creation, not by mutation afterwards: the
 		// approval is persisted inside Submit, so a field set later never
 		// reached SQLite and was lost on restart.

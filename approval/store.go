@@ -279,6 +279,28 @@ func (s *Store) ClaimApproved(agentID, tool string, params map[string]any, windo
 	return nil
 }
 
+// FindPending returns the approval still waiting for exactly this call (same
+// agent, tool and arguments), or nil. An agent that waits by retrying the call
+// until a human decides must meet the same approval each time, not open a new
+// one per retry. Arguments are compared as in ClaimApproved.
+func (s *Store) FindPending(agentID, tool string, params map[string]any) *PendingApproval {
+	want, err := json.Marshal(params)
+	if err != nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, pa := range s.pending {
+		if pa.Status != StatusPending || pa.AgentID != agentID || pa.Tool != tool {
+			continue
+		}
+		if got, err := json.Marshal(pa.Params); err == nil && string(got) == string(want) {
+			return pa
+		}
+	}
+	return nil
+}
+
 // Get returns a pending approval by ID or prefix, or nil if not found.
 func (s *Store) Get(id string) *PendingApproval {
 	s.mu.RLock()

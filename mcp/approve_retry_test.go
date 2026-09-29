@@ -70,3 +70,59 @@ func TestApproveThenRetry(t *testing.T) {
 		t.Fatalf("one approval ran twice: hits=%d, %s", hits.Load(), again)
 	}
 }
+
+// An agent waiting for a human retries the same call: every retry meets the
+// one pending approval, none opens another; approved, the next retry runs.
+func TestRetryWhilePendingReusesTheApproval(t *testing.T) {
+	var hits atomic.Int32
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer backend.Close()
+
+	reg := registry.New()
+	reg.LoadManual(&registry.Tool{Name: "write", Source: "openapi", Method: "POST", Path: "/w", BaseURL: backend.URL,
+		Params: []registry.Param{{Name: "path", In: "body", Type: "string"}}})
+	pol := policy.NewEngine([]config.Policy{{Name: "p", Agent: "*", Rules: []config.Rule{
+		{Tools: []string{"write"}, Action: "human_approval"}}}})
+	traces := trace.NewStore(50)
+	store := approval.NewStore(time.Minute)
+	s := &Server{Registry: reg, Policy: pol, Traces: traces, Approvals: store,
+		Handler: proxy.NewHandler(reg, pol, traces), AgentID: "scout7", ApprovalChannel: "queue"}
+	call := func(path string) string {
+		res := sendRPC(t, s, rpcRequest{JSONRPC: "2.0", ID: float64(1), Method: "tools/call",
+			Params: map[string]any{"name": "write", "arguments": map[string]any{"path": path}}})
+		return extractText(t, res[0])
+	}
+
+	first := call("/tmp/a")
+	for i := 0; i < 5; i++ {
+		if again := call("/tmp/a"); !strings.Contains(again, "Approval required") {
+			t.Fatalf("retry %d: %s", i, again)
+		}
+	}
+	if n := len(store.ListPending()); n != 1 {
+		t.Fatalf("pending = %d after five retries, want 1", n)
+	}
+	if n := len(traces.Query("", "write", 50)); n != 1 {
+		t.Fatalf("trace lines = %d after five retries, want 1", n)
+	}
+	id := store.ListPending()[0].ID
+	if !strings.Contains(first, id[:8]) {
+		t.Fatalf("the first answer should carry the approval id %s:\n%s", id[:8], first)
+	}
+
+	// Another call, other arguments: its own approval.
+	call("/tmp/b")
+	if n := len(store.ListPending()); n != 2 {
+		t.Fatalf("pending = %d, want 2 (distinct arguments)", n)
+	}
+
+	if err := store.Approve(id, "human:bob"); err != nil {
+		t.Fatal(err)
+	}
+	if out := call("/tmp/a"); strings.Contains(out, "Approval required") || hits.Load() != 1 {
+		t.Fatalf("approved retry must run once, got %q (hits %d)", out, hits.Load())
+	}
+}
