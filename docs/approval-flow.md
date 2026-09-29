@@ -46,6 +46,18 @@ Without an explicit channel, routing depends on how the process was launched: a 
 
 The HTTP proxy path (`POST /tool/{name}`) always uses the queue regardless of this setting.
 
+## Waiting for an automatic decision: `approval.wait_seconds`
+
+In MCP mode a `human_approval` call is non-blocking: the agent gets the approval id at once, and retries the same call once it is approved. When a supervisor such as sup7 decides in about half a second, that retry is friction, and an LLM that rewrites its arguments on retry opens a new approval.
+
+```yaml
+approval:
+  channel: queue
+  wait_seconds: 3       # 0 (default): answer at once
+```
+
+With a wait, the call holds for up to `wait_seconds`. Decided in time, it runs (or is refused) in the same request, and the approval is used up, so a retry of the same call does not run it again. Not decided in time (a human, a slow supervisor), the agent gets the approval id as before. Keep it short: a stdio session is blocked while it waits, and a human never answers within it. Pair it with a supervisor polling faster than the wait (sup7 `poll.interval: 500ms`).
+
 ## Resolving approvals
 
 ### In Claude Code (MCP mode)

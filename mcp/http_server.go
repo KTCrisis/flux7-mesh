@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/KTCrisis/flux7-mesh/approval"
 	"github.com/KTCrisis/flux7-mesh/auth"
@@ -32,7 +33,8 @@ type HTTPHandler struct {
 	SupervisorMode   bool
 	SupervisorAgents []string
 	ApprovalChannel  string
-	HideDenied       bool // see Server.HideDenied
+	HideDenied       bool          // see Server.HideDenied
+	ApprovalWait     time.Duration // see Server.ApprovalWait
 
 	mu       sync.Mutex
 	sessions map[string]*Server
@@ -213,6 +215,7 @@ func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity) 
 		SupervisorMode:   h.SupervisorMode,
 		SupervisorAgents: h.SupervisorAgents,
 		ApprovalChannel:  h.ApprovalChannel,
+		ApprovalWait:     h.ApprovalWait,
 		HideDenied:       h.HideDenied,
 	}
 	h.sessions[srv.SessionID] = srv

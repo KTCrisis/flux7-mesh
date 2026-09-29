@@ -130,13 +130,14 @@ type Server struct {
 	Approvals        *approval.Store
 	Handler          *proxy.Handler
 	MCPManager       *Manager
-	AgentID          string   // agent ID for policy evaluation in MCP mode
-	HideDenied       bool     // drop from tools/list what the policy can only deny
-	UserID           string   // human the agent acts for, when the credential carried one
-	SessionID        string   // optional session ID (set externally or auto-generated at initialize)
-	SupervisorMode   bool     // when true, hide approval.* virtual tools from agents
-	SupervisorAgents []string // agent ID globs allowed to see approval tools in supervisor mode
-	ApprovalChannel  string   // queue | tty | tty-fallback (empty = tty-fallback, see config.ApprovalConfig)
+	AgentID          string        // agent ID for policy evaluation in MCP mode
+	HideDenied       bool          // drop from tools/list what the policy can only deny
+	UserID           string        // human the agent acts for, when the credential carried one
+	SessionID        string        // optional session ID (set externally or auto-generated at initialize)
+	SupervisorMode   bool          // when true, hide approval.* virtual tools from agents
+	SupervisorAgents []string      // agent ID globs allowed to see approval tools in supervisor mode
+	ApprovalChannel  string        // queue | tty | tty-fallback (empty = tty-fallback, see config.ApprovalConfig)
+	ApprovalWait     time.Duration // non-blocking calls wait this long for an automatic decision (0 = none)
 
 	// ttyPrompt overrides promptTTY in tests (a real /dev/tty prompt would block).
 	ttyPrompt func(toolName string, params map[string]any) (*bool, string)
@@ -697,6 +698,21 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 			// Block until supervisor resolves — agent waits
 			resolution := <-pending.Result
 			return s.handleResolution(pending, entry, resolution, toolName, arguments)
+		}
+
+		// A short wait for an automatic decision: sup7 answers in about half a
+		// second. Decided in time, the call runs in this request and the agent
+		// never retries; the approval is claimed so a retry cannot run it again.
+		if s.ApprovalWait > 0 {
+			timer := time.NewTimer(s.ApprovalWait)
+			select {
+			case resolution := <-pending.Result:
+				timer.Stop()
+				if s.Approvals.Claim(pending.ID) {
+					return s.handleResolution(pending, entry, resolution, toolName, arguments)
+				}
+			case <-timer.C:
+			}
 		}
 
 		slog.Info("approval pending (non-blocking)",

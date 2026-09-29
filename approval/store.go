@@ -279,6 +279,19 @@ func (s *Store) ClaimApproved(agentID, tool string, params map[string]any, windo
 	return nil
 }
 
+// Claim marks one resolved approval as used, by id, and reports whether this
+// caller got it. A call that waited for its own decision and ran on it claims
+// it, so the agent's retry of the same call does not run it a second time.
+func (s *Store) Claim(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimed[id] {
+		return false
+	}
+	s.claimed[id] = true
+	return true
+}
+
 // ClaimDenied is ClaimApproved's twin for a refusal: the agent's retry of a
 // call a human refused learns the answer once, instead of opening a new
 // approval and asking again until its patience runs out.
