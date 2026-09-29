@@ -325,3 +325,95 @@ func resolverKind(resolvedBy string) string {
 		return "human"
 	}
 }
+
+// Precedent sums up the decisions mem7 holds for one tool and agent.
+type Precedent struct {
+	Tool             string `json:"tool"`
+	Agent            string `json:"agent"`
+	HumanApproved    int    `json:"human_approved"`     // the only approvals that count
+	OtherApproved    int    `json:"other_approved"`     // by sup7 or by auto-approval: never counted
+	Refused          int    `json:"refused"`            // by anyone: one blocks
+	Untagged         int    `json:"untagged"`           // written before the by: tag, not counted
+	Last             string `json:"last"`               // most recent decision (RFC 3339)
+	AutoApprovable   bool   `json:"auto_approvable"`    // the tool may be approved from precedents at all
+	WouldAutoApprove bool   `json:"would_auto_approve"` // the next call would pass without the supervisor
+}
+
+// MinApprovals is the number of human approvals a precedent needs.
+func (m *MemoryReader) MinApprovals() int {
+	if m == nil {
+		return 0
+	}
+	return m.minApprovals
+}
+
+var listLine = regexp.MustCompile(`^- decision\.(\S+)\.[0-9a-f]+ \[([^\]]*)\].*— (\S+)$`)
+
+// ListPrecedents reads every decision fact and groups it by tool and agent.
+func (m *MemoryReader) ListPrecedents() ([]Precedent, error) {
+	if m == nil || m.url == "" {
+		return nil, fmt.Errorf("no memory server")
+	}
+	text, err := m.call("memory_list", map[string]any{"tags": []string{"decision"}})
+	if err != nil {
+		return nil, err
+	}
+	byKey := map[string]*Precedent{}
+	var order []string
+	for _, line := range strings.Split(text, "\n") {
+		match := listLine.FindStringSubmatch(strings.TrimSpace(line))
+		if match == nil {
+			continue
+		}
+		tool, at := match[1], match[3]
+		var status, by, agent string
+		for _, tag := range strings.Split(match[2], ",") {
+			tag = strings.TrimSpace(tag)
+			switch {
+			case tag == "approved" || tag == "denied" || tag == "timeout":
+				status = tag
+			case strings.HasPrefix(tag, "by:"):
+				by = strings.TrimPrefix(tag, "by:")
+			case strings.HasPrefix(tag, "agent:"):
+				agent = strings.TrimPrefix(tag, "agent:")
+			}
+		}
+		key := tool + "\x00" + agent
+		p := byKey[key]
+		if p == nil {
+			p = &Precedent{Tool: tool, Agent: agent}
+			byKey[key] = p
+			order = append(order, key)
+		}
+		switch {
+		case status == "denied":
+			p.Refused++
+		case status == "approved" && by == "human":
+			p.HumanApproved++
+		case status == "approved" && by == "":
+			p.Untagged++
+		case status == "approved":
+			p.OtherApproved++
+		}
+		if at > p.Last {
+			p.Last = at
+		}
+	}
+	out := make([]Precedent, 0, len(order))
+	for _, k := range order {
+		out = append(out, *byKey[k])
+	}
+	return out, nil
+}
+
+// ForgetPrecedents removes every decision of one tool and agent from mem7:
+// the next calls start again from no precedent.
+func (m *MemoryReader) ForgetPrecedents(tool, agentID string) (string, error) {
+	if m == nil || m.url == "" {
+		return "", fmt.Errorf("no memory server")
+	}
+	if tool == "" || agentID == "" {
+		return "", fmt.Errorf("tool and agent are required")
+	}
+	return m.call("memory_forget", map[string]any{"tags": []string{"decision", tool, "agent:" + agentID}})
+}
