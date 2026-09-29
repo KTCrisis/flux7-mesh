@@ -77,6 +77,10 @@ type Store struct {
 	Notifier     *Notifier
 	MemoryWriter *MemoryWriter
 	MemoryReader *MemoryReader
+	// AutoApprovable says whether mem7 precedents may approve this tool on
+	// their own; nil allows every tool. Set to "reads only" by the daemon:
+	// a precedent ignores the arguments, a write's risk lives in them.
+	AutoApprovable func(tool string) bool
 }
 
 // SetDB attaches a SQLite database for durable persistence.
@@ -89,6 +93,9 @@ func (s *Store) SetDB(db *sql.DB) { s.db = db }
 // Centralising the guard here keeps every transport (HTTP, MCP stdio, MCP HTTP)
 // consistent instead of each call site remembering to check separately.
 func (s *Store) TryAutoResolveSafe(agentID, tool string, params map[string]any) *Resolution {
+	if s != nil && s.AutoApprovable != nil && !s.AutoApprovable(tool) {
+		return nil
+	}
 	if supervisor.DetectInjection(params) {
 		slog.Warn("injection risk detected, forcing human review (auto-approve skipped)",
 			"agent", agentID, "tool", tool)

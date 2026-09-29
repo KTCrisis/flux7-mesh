@@ -351,3 +351,29 @@ func TestMemoryWriterDeniedDecision(t *testing.T) {
 		t.Fatal("timeout waiting for memory write")
 	}
 }
+
+// Precedents approve only what AutoApprovable allows: a write with three
+// approved precedents still goes to the supervisor, and mem7 is not asked.
+func TestAutoApprovableGatesPrecedents(t *testing.T) {
+	var queried int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		queried++
+		resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.write"}]}}`
+		w.Write([]byte(resp))
+	}))
+	defer srv.Close()
+
+	s := NewStore(time.Minute)
+	s.MemoryReader = NewMemoryReader(srv.URL, "", 3)
+	s.AutoApprovable = func(tool string) bool { return tool == "fs.read" }
+
+	if res := s.TryAutoResolveSafe("claude", "fs.write", map[string]any{"path": "/home/u/.bashrc"}); res != nil {
+		t.Fatalf("a write was auto-approved from precedents: %+v", res)
+	}
+	if queried != 0 {
+		t.Fatalf("mem7 was queried %d times for a tool that cannot be auto-approved", queried)
+	}
+	if res := s.TryAutoResolveSafe("claude", "fs.read", map[string]any{"path": "/x"}); res == nil {
+		t.Fatal("a read with three approved precedents was not auto-approved")
+	}
+}

@@ -33,6 +33,7 @@ memory:
 supervisor:
   auto_approve: true            # default true when memory.url is set
   min_approvals: 3              # threshold (default 3)
+  auto_approve_writes: false    # default: precedents approve reads only (see below)
 ```
 
 Set `auto_approve: false` to disable even when mem7 is configured.
@@ -157,3 +158,8 @@ agent_mesh_mem7_writes_failed_total
 ```
 
 A growing `failed` count means mem7 is down — auto-approve will escalate everything until it recovers.
+
+
+## Reads only, by default
+
+A precedent is keyed on agent and tool, not on the arguments: three approved `filesystem.write_file` in a project would let a fourth write anywhere (`~/.bashrc`) through, around the supervisor. Since 2026-09-29, precedents approve only tools that `registry.Classify` reads as a named read (the `family: named`, `access: read` of `GET /tools`); writes, generic tools (shell, SQL) and tools of unknown access go on to the supervisor or the human, and mem7 is not queried for them. `auto_approve_writes: true` restores the former behaviour.

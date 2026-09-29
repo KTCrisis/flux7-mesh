@@ -115,11 +115,16 @@ type OpenAPIConfig struct {
 
 // SupervisorConfig controls supervisor mode, content isolation, and auto-approval.
 type SupervisorConfig struct {
-	Enabled          *bool    `yaml:"enabled"` // when true, hide approval.* tools from agents
-	ExposeContent    *bool    `yaml:"expose_content"`
-	AutoApprove      *bool    `yaml:"auto_approve"`      // enable mem7-based auto-approval (default true)
-	MinApprovals     int      `yaml:"min_approvals"`     // min past approvals for auto-approve (default 3)
-	SupervisorAgents []string `yaml:"supervisor_agents"` // agent IDs (glob) allowed to see approval tools in supervisor mode
+	Enabled       *bool `yaml:"enabled"` // when true, hide approval.* tools from agents
+	ExposeContent *bool `yaml:"expose_content"`
+	AutoApprove   *bool `yaml:"auto_approve"`  // enable mem7-based auto-approval (default true)
+	MinApprovals  int   `yaml:"min_approvals"` // min past approvals for auto-approve (default 3)
+	// AutoApproveWrites lets mem7 auto-approve tools that change something.
+	// Off by default: a precedent is keyed on agent and tool, not on the
+	// arguments, so three approved writes in a project would let a fourth
+	// write anywhere through, around the supervisor.
+	AutoApproveWrites bool     `yaml:"auto_approve_writes"`
+	SupervisorAgents  []string `yaml:"supervisor_agents"` // agent IDs (glob) allowed to see approval tools in supervisor mode
 }
 
 // IsEnabled returns whether supervisor mode is active.

@@ -142,8 +142,21 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		slog.Info("memory writer configured — decisions will be persisted", "url", cfg.Memory.URL)
 		if cfg.Supervisor.IsAutoApproveEnabled() {
 			m.approvals.MemoryReader = approval.NewMemoryReader(cfg.Memory.URL, cfg.Memory.Token, cfg.Supervisor.GetMinApprovals())
+			if !cfg.Supervisor.AutoApproveWrites {
+				// precedents approve reads through named tools only (registry.Classify);
+				// writes, generic tools and unknown access go to the supervisor
+				m.approvals.AutoApprovable = func(tool string) bool {
+					t := m.reg.Get(tool)
+					if t == nil {
+						return false
+					}
+					c := registry.Classify(t)
+					return c.Family == registry.FamilyNamed && c.Access == registry.AccessRead
+				}
+			}
 			slog.Info("memory reader configured — auto-approve from past decisions",
-				"url", cfg.Memory.URL, "min_approvals", cfg.Supervisor.GetMinApprovals())
+				"url", cfg.Memory.URL, "min_approvals", cfg.Supervisor.GetMinApprovals(),
+				"writes", cfg.Supervisor.AutoApproveWrites)
 		}
 	}
 	slog.Info("approval store ready", "timeout", approvalTimeout)
