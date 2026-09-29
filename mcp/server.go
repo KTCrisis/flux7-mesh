@@ -703,8 +703,12 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 		// A short wait for an automatic decision: sup7 answers in about half a
 		// second. Decided in time, the call runs in this request and the agent
 		// never retries; the approval is claimed so a retry cannot run it again.
-		if s.ApprovalWait > 0 {
-			timer := time.NewTimer(s.ApprovalWait)
+		wait := s.ApprovalWait // a server-level value (tests) wins over the store's
+		if wait == 0 {
+			wait = s.Approvals.Wait()
+		}
+		if wait > 0 {
+			timer := time.NewTimer(wait)
 			select {
 			case resolution := <-pending.Result:
 				timer.Stop()

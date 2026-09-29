@@ -58,6 +58,10 @@ approval:
 
 With a wait, the call holds for up to `wait_seconds`. Decided in time, it runs (or is refused) in the same request, and the approval is used up, so a retry of the same call does not run it again. Not decided in time (a human, a slow supervisor), the agent gets the approval id as before. Keep it short: a stdio session is blocked while it waits, and a human never answers within it. Pair it with a supervisor polling faster than the wait (sup7 `poll.interval: 500ms`).
 
+## Changing approval settings at runtime
+
+`GET /approvals/settings` and `PUT /approvals/settings` (control plane) read and change `approval.timeout_seconds`, `approval.wait_seconds`, `supervisor.auto_approve`, `supervisor.min_approvals` and `supervisor.auto_approve_writes` without a restart. A change is validated (timeout 30 to 3600 s, wait 0 to 10 s, min approvals 1 to 100), written back to the config file line by line (comments and order kept, mode kept, previous version in `<config>.bak-<timestamp>`), read back to check it, applied to the approval store at once, and traced as `mesh.approval_settings_edit` with the values before and after. The console edits them from the Approvals page.
+
 ## Resolving approvals
 
 ### In Claude Code (MCP mode)

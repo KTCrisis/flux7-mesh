@@ -34,11 +34,11 @@ type MemoryWriter struct {
 // Used by the built-in supervisor (Level 1) to auto-approve routine patterns
 // based on historical decisions stored by MemoryWriter.
 type MemoryReader struct {
-	client       *http.Client
-	url          string
-	token        string
-	reqID        atomic.Int64
-	minApprovals int
+	client *http.Client
+	url    string
+	token  string
+	reqID  atomic.Int64
+	min    atomic.Int64 // human approvals a precedent needs; changed at runtime
 }
 
 // AutoResolveResult is the outcome of checking mem7 for past decisions.
@@ -85,12 +85,13 @@ func NewMemoryReader(url, token string, minApprovals int) *MemoryReader {
 	if minApprovals <= 0 {
 		minApprovals = 3
 	}
-	return &MemoryReader{
-		client:       &http.Client{Timeout: 3 * time.Second},
-		url:          url,
-		token:        token,
-		minApprovals: minApprovals,
+	m := &MemoryReader{
+		client: &http.Client{Timeout: 3 * time.Second},
+		url:    url,
+		token:  token,
 	}
+	m.min.Store(int64(minApprovals))
+	return m
 }
 
 // AutoResolve counts the precedents of exactly this tool and agent and
@@ -129,12 +130,12 @@ func (m *MemoryReader) verdict(approved, rejected int) AutoResolveResult {
 	case rejected > 0:
 		return AutoResolveResult{Action: "escalate", Approved: approved, Rejected: rejected,
 			Reason: fmt.Sprintf("mem7: %d human approvals, %d refusals — escalating", approved, rejected)}
-	case approved >= m.minApprovals:
+	case approved >= m.MinApprovals():
 		return AutoResolveResult{Action: "approve", Confidence: 0.9, Approved: approved,
 			Reason: fmt.Sprintf("mem7: %d prior human approvals, 0 refusals", approved)}
 	default:
 		return AutoResolveResult{Action: "escalate", Approved: approved,
-			Reason: fmt.Sprintf("mem7: %d human approvals (need %d) — escalating", approved, m.minApprovals)}
+			Reason: fmt.Sprintf("mem7: %d human approvals (need %d) — escalating", approved, m.MinApprovals())}
 	}
 }
 
@@ -344,7 +345,14 @@ func (m *MemoryReader) MinApprovals() int {
 	if m == nil {
 		return 0
 	}
-	return m.minApprovals
+	return int(m.min.Load())
+}
+
+// SetMinApprovals changes the threshold at runtime.
+func (m *MemoryReader) SetMinApprovals(n int) {
+	if m != nil && n > 0 {
+		m.min.Store(int64(n))
+	}
 }
 
 var listLine = regexp.MustCompile(`^- decision\.(\S+)\.[0-9a-f]+ \[([^\]]*)\].*— (\S+)$`)

@@ -140,25 +140,35 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	if cfg.Memory.URL != "" {
 		m.approvals.MemoryWriter = approval.NewMemoryWriter(cfg.Memory.URL, cfg.Memory.Token)
 		slog.Info("memory writer configured — decisions will be persisted", "url", cfg.Memory.URL)
-		if cfg.Supervisor.IsAutoApproveEnabled() {
-			m.approvals.MemoryReader = approval.NewMemoryReader(cfg.Memory.URL, cfg.Memory.Token, cfg.Supervisor.GetMinApprovals())
-			if !cfg.Supervisor.AutoApproveWrites {
-				// precedents approve reads through named tools only (registry.Classify);
-				// writes, generic tools and unknown access go to the supervisor
-				m.approvals.AutoApprovable = func(tool string) bool {
-					t := m.reg.Get(tool)
-					if t == nil {
-						return false
-					}
-					c := registry.Classify(t)
-					return c.Family == registry.FamilyNamed && c.Access == registry.AccessRead
-				}
+		// the reader also serves the precedents view: created whenever mem7 is set,
+		// auto-approval itself is a runtime setting (store.Settings)
+		m.approvals.MemoryReader = approval.NewMemoryReader(cfg.Memory.URL, cfg.Memory.Token, cfg.Supervisor.GetMinApprovals())
+		store := m.approvals
+		// precedents approve reads through named tools only (registry.Classify),
+		// unless auto_approve_writes; writes, generic tools and unknown access go
+		// to the supervisor
+		m.approvals.AutoApprovable = func(tool string) bool {
+			if store.Settings().AutoApproveWrites {
+				return true
 			}
-			slog.Info("memory reader configured — auto-approve from past decisions",
-				"url", cfg.Memory.URL, "min_approvals", cfg.Supervisor.GetMinApprovals(),
-				"writes", cfg.Supervisor.AutoApproveWrites)
+			t := m.reg.Get(tool)
+			if t == nil {
+				return false
+			}
+			c := registry.Classify(t)
+			return c.Family == registry.FamilyNamed && c.Access == registry.AccessRead
 		}
+		slog.Info("memory reader configured — auto-approve from past decisions",
+			"url", cfg.Memory.URL, "enabled", cfg.Supervisor.IsAutoApproveEnabled(),
+			"min_approvals", cfg.Supervisor.GetMinApprovals(), "writes", cfg.Supervisor.AutoApproveWrites)
 	}
+	m.approvals.Apply(approval.Settings{
+		TimeoutSeconds:    cfg.Approval.TimeoutSeconds,
+		WaitSeconds:       cfg.Approval.WaitSeconds,
+		AutoApprove:       cfg.Supervisor.IsAutoApproveEnabled() && cfg.Memory.URL != "",
+		MinApprovals:      cfg.Supervisor.GetMinApprovals(),
+		AutoApproveWrites: cfg.Supervisor.AutoApproveWrites,
+	})
 	slog.Info("approval store ready", "timeout", approvalTimeout)
 	if cfg.Supervisor.IsEnabled() {
 		slog.Info("supervisor mode enabled — approval.resolve hidden from agents")
@@ -329,7 +339,6 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.mcpHTTP = mcp.NewHTTPHandler(m.reg, m.pol, m.traces, m.approvals, m.handler, m.mcpManager, cfg.Supervisor.IsEnabled(), cfg.Supervisor.SupervisorAgents, cfg.Approval.Channel)
 	m.mcpHTTP.JWTValidator = m.handler.JWTValidator
 	m.mcpHTTP.HideDenied = cfg.HideDeniedTools
-	m.mcpHTTP.ApprovalWait = time.Duration(cfg.Approval.WaitSeconds * float64(time.Second))
 	m.mcpHTTP.AllowLegacyAgent = m.handler.AllowLegacyAgent
 	m.mcpHTTP.RequireAuth = m.handler.RequireAuth
 	m.handler.MCPHTTPHandler = m.mcpHTTP
@@ -352,6 +361,10 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	// takes: validated as a whole, then applied like a hot reload.
 	if _, dir, err := config.LoadPolicies(configPath); err == nil && dir != "" {
 		m.handler.PolicyEditing = &proxy.PolicyEditing{ConfigPath: configPath, Dir: dir, Reload: applyPolicies}
+	}
+	if configPath != "" {
+		// approval knobs edited from the console, written back to the config file
+		m.handler.ApprovalSettings = &proxy.ApprovalSettingsEditing{ConfigPath: configPath}
 	}
 	policyWatcher, err := policy.NewWatcher(configPath, applyPolicies)
 	if err != nil {
