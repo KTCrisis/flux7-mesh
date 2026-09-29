@@ -49,13 +49,10 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 const stage = new URL('file://' + path.join(here, 'stage.html'));
 stage.searchParams.set('term', TERM);
-stage.searchParams.set('console', CONSOLE + scene.start);
-await page.goto(stage.href);
+stage.searchParams.set('console', CONSOLE + (scene.start || ''));
 
 const frame = (host) => page.frames().find((f) => f.url().startsWith(host));
-await waitFor(() => frame(TERM) && frame(CONSOLE), 'both frames');
-let term = frame(TERM);
-await term.waitForSelector('.xterm-helper-textarea');
+let term;
 // The console, with its sidebar folded: the pane is narrower than the screen
 // the console is laid out for, and every row should fit.
 async function openConsole(pathname) {
@@ -65,7 +62,15 @@ async function openConsole(pathname) {
   await con.$eval('aside button', (b) => b.click());
   return con;
 }
-await openConsole();
+// A scene that only films full pages (stage: false) needs no terminal and no
+// console frame.
+if (scene.stage !== false) {
+  await page.goto(stage.href);
+  await waitFor(() => frame(TERM) && frame(CONSOLE), 'both frames');
+  term = frame(TERM);
+  await term.waitForSelector('.xterm-helper-textarea');
+  await openConsole();
+}
 
 const caption = (t, s = '') => page.evaluate((t, s) => window.caption(t, s), t, s);
 const focusPane = (id) => page.evaluate((id) => window.focusPane(id), id);
@@ -116,10 +121,19 @@ async function backToStage() {
 
 await sleep(1500);
 const rec = await page.screencast({ path: OUT });
+// Marks the scene sets (e.g. the start and end of a wait to speed up in the
+// edit), in seconds from the start of the recording, written next to OUT.
+const t0 = Date.now();
+const marks = [];
+const mark = (name) => marks.push({ name, t: (Date.now() - t0) / 1000 });
 
 await scene.default({ caption, focusPane, typeInTerm, enter, sleep, waitFor, pending, frame, openConsole,
-  fullPage, overlay, backToStage, CONSOLE, page });
+  fullPage, overlay, backToStage, mark, CONSOLE, page });
 
 await rec.stop();
+if (marks.length) {
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(OUT.replace(/\.webm$/, '.marks.json'), JSON.stringify(marks));
+}
 await browser.close();
 console.log(OUT);
