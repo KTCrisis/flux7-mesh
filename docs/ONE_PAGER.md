@@ -95,8 +95,8 @@ Policies start strict. The system then learns which requests are routine.
 | Level | Who | Latency | Handles |
 |-------|-----|---------|---------|
 | 0 | Policy engine | 0 ms | Static rules, conditions on arguments |
-| 1 | Built-in mem7 lookup | ~100 ms | Routine patterns (3+ past approvals, no rejections) |
-| 1+ | External supervisor | ~20 s | Novel cases, rules then local LLM |
+| 1 | Built-in mem7 lookup | ~100 ms | Routine reads (3+ human approvals, no refusal); writes always ask |
+| 1+ | External supervisor | ~350 ms | Novel cases and writes, rules then a decision model |
 | 2 | Human | minutes | Unknowns and high-stakes calls |
 
 Auto-approval is skipped whenever the arguments carry a prompt-injection pattern, so the escalation is conservative in the right direction: the tripwire blocks the automatic decision, not the call. Every decision is stored as a fact in [mem7](https://github.com/KTCrisis/flux7-memory) and every call is a trace. Both are queryable.

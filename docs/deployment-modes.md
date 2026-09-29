@@ -48,15 +48,15 @@ Claude manages flux7-mesh. Two layers of auto-resolve handle routine approvals b
 Claude Code ──stdio──> flux7-mesh :9090 ──> tools
                            │
                     Level 1: built-in (mem7 lookup, ~100ms)
-                    ├── 3+ past approvals → auto-approve
+                    ├── read, 3+ human approvals → auto-approve
                     └── else → escalate to Level 1+
                            │
                     Level 1+: supervisor (poll GET /approvals)
                     ├── rules → approve/deny (0ms)
-                    └── ollama → evaluate (~20s)
+                    └── decision model → evaluate (~350ms; local model as fallback)
 ```
 
-The built-in auto-approve (Level 1) fires before the approval queue — routine patterns never block. If it can't resolve, the external supervisor (Level 1+) evaluates with rules and LLM. If both escalate, the human decides.
+The built-in auto-approve (Level 1) fires before the approval queue — routine patterns never block. If it can't resolve, the external supervisor (Level 1+) evaluates with rules, then a decision model. If both escalate, the human decides.
 
 **Setup:**
 

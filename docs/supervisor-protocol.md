@@ -384,21 +384,21 @@ Domain-specific supervision improves judgment quality: the filesystem supervisor
 
 ## Reference implementation
 
-A complete supervisor implementation is available in the [agent7](https://github.com/KTCrisis/flux7-console) repository at `backend/app/services/supervisor/`.
+The reference implementation is [flux7-supervisor (sup7)](https://github.com/KTCrisis/flux7-supervisor). It was extracted from flux7-console, which no longer carries a supervisor.
 
 ### Features
 
-- **Rule engine** — first-match-wins rules with a simple DSL (`starts_with`, `equals`, `contains`). Fast path for known patterns (0ms).
-- **LLM fallback** — when no rule matches, calls Ollama for evaluation (~20s). Configurable model, system prompt, and confidence threshold.
-- **Process manager** — auto-spawns mesh7 when it's down, monitors health, restarts on crash.
-- **Memory integration** — stores decisions in memory-mcp (via mesh7), recalls them on startup for context continuity across sessions.
-- **JSONL audit trail** — every decision logged with reasoning, confidence, rule matched, and evaluation time.
+- **Rule engine** — first-match-wins rules with a simple DSL (`starts_with`, `equals`, `contains`, `in`). Fast path for known patterns (0ms).
+- **Decision model** — when no rule matches, asks narrow typed questions to a chain of providers (Jev, then a local Ollama model if it is down) and decides in code from the probabilities (a few hundred milliseconds). Thresholds are measured on a bench.
+- **Memory integration** — stores each decision in flux7-memory through the mem7 SDK, and reads past decisions as precedents.
+- **JSONL audit trail** — every decision logged with reasoning, confidence, rule matched, provider provenance and evaluation time.
+- **Admin API** — status, pause and resume, edits of rules and question sets, `POST /evaluate` for enforcement points outside the mesh.
 
 ### Quick start
 
 ```bash
-cd ~/agent7
-python -m backend.app.services.supervisor --config supervisor.yaml
+pip install "git+https://github.com/KTCrisis/flux7-supervisor"
+sup7 -c sup7.yaml start
 ```
 
 See [docs/deployment-modes.md](deployment-modes.md) for full setup options.

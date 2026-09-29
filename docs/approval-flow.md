@@ -12,7 +12,7 @@ Agent calls filesystem.write_file
   ├── Check 1: Temporal grant active?
   │   yes → bypass approval, proceed
   │
-  ├── Check 2: mem7 auto-approve? (3+ past approvals)
+  ├── Check 2: mem7 auto-approve? (a read, 3+ human approvals, no refusal)
   │   yes → proceed, traced as supervisor:mem7
   │
   └── Submit to approval queue
