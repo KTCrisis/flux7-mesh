@@ -102,3 +102,26 @@ func TestApprovalSettingsRefusesOutOfRange(t *testing.T) {
 		t.Fatal("a refused edit touched the file")
 	}
 }
+
+func TestTwoEditsInOneSecondKeepBothBackups(t *testing.T) {
+	h, path := settingsFixture(t)
+	for _, wait := range []string{"2", "3"} {
+		body := `{"timeout_seconds":300,"wait_seconds":` + wait + `,"auto_approve":true,"min_approvals":3}`
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, newLoopbackReq("PUT", "/approvals/settings", strings.NewReader(body)))
+		if w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+	}
+	backups, _ := filepath.Glob(path + ".bak-*")
+	if len(backups) != 2 {
+		t.Fatalf("want 2 backups, got %v", backups)
+	}
+	first, _ := os.ReadFile(backups[0])
+	if !strings.Contains(string(first), "wait_seconds: 3") {
+		t.Fatalf("the first backup must be the original version:\n%s", first)
+	}
+	if e := h.Traces.Query("", "mesh.approval_settings_edit", 10); len(e) == 0 || e[0].Timestamp.Location() != time.UTC {
+		t.Fatal("the edit trace must be in UTC like every other entry")
+	}
+}
