@@ -2,6 +2,7 @@ package approval
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,99 +137,124 @@ func TestMemoryWriterStatsFailure(t *testing.T) {
 
 // --- MemoryReader tests ---
 
-func TestCountDecisions(t *testing.T) {
-	tests := []struct {
-		name             string
-		text             string
-		wantApproved     int
-		wantRejected     int
-	}{
-		{
-			"empty",
-			"",
-			0, 0,
-		},
-		{
-			"three approvals",
-			"approved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read\napproved by supervisor:auto — agent:claude tool:fs.read",
-			3, 0,
-		},
-		{
-			"mixed",
-			"approved by user:marc — agent:claude tool:fs.read\nrejected by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.read",
-			2, 1,
-		},
-		{
-			"no match lines",
-			"Found 2 memories matching \"fs.read\":\n\n[1] decision.fs.read.abc\napproved by user:marc — agent:claude tool:fs.read\nTags: decision, approved\n---",
-			1, 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a, r := countDecisions(tt.text)
-			if a != tt.wantApproved || r != tt.wantRejected {
-				t.Errorf("countDecisions() = (%d, %d), want (%d, %d)", a, r, tt.wantApproved, tt.wantRejected)
+// listServer plays mem7 for precedents: memory_list answers the given number
+// of approved (by:human) and denied facts, and records the tags it was asked.
+func listServer(t *testing.T, approved, denied int, asked *[][]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		json.Unmarshal(body, &payload)
+		params := payload["params"].(map[string]any)
+		if params["name"] != "memory_list" {
+			w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+			return
+		}
+		var tags []string
+		for _, x := range params["arguments"].(map[string]any)["tags"].([]any) {
+			tags = append(tags, x.(string))
+		}
+		if asked != nil {
+			*asked = append(*asked, tags)
+		}
+		n := 0
+		switch {
+		case contains(tags, "approved") && contains(tags, "by:human"):
+			n = approved
+		case contains(tags, "denied"):
+			n = denied
+		}
+		text := "No memories found."
+		if n > 0 {
+			text = fmt.Sprintf("%d memories:\n", n)
+			for i := 0; i < n; i++ {
+				text += fmt.Sprintf("- decision.fs.read.%d [decision] (by flux7-mesh)\n", i)
 			}
-		})
+		}
+		resp, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1,
+			"result": map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}})
+		w.Write(resp)
+	}))
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
 	}
+	return false
 }
 
 func TestAutoResolveApprove(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read"}]}}`
-		w.Write([]byte(resp))
-	}))
+	var asked [][]string
+	srv := listServer(t, 3, 0, &asked)
 	defer srv.Close()
 
-	mr := NewMemoryReader(srv.URL, "", 3)
-	result := mr.AutoResolve("fs.read", "claude")
-
-	if result.Action != "approve" {
-		t.Fatalf("expected approve, got %s: %s", result.Action, result.Reason)
+	result := NewMemoryReader(srv.URL, "", 3).AutoResolve("fs.read", "claude")
+	if result.Action != "approve" || result.Approved != 3 || result.Confidence != 0.9 {
+		t.Fatalf("expected approve on 3 human approvals, got %+v", result)
 	}
-	if result.Approved != 3 || result.Rejected != 0 {
-		t.Fatalf("counts wrong: approved=%d rejected=%d", result.Approved, result.Rejected)
+	// exact scope: this tool, this agent, human approvals; refusals from anyone
+	want := [][]string{
+		{"approved", "by:human", "decision", "fs.read", "agent:claude"},
+		{"denied", "decision", "fs.read", "agent:claude"},
 	}
-	if result.Confidence != 0.9 {
-		t.Fatalf("expected confidence 0.9, got %f", result.Confidence)
+	if fmt.Sprint(asked) != fmt.Sprint(want) {
+		t.Fatalf("mem7 asked %v, want %v", asked, want)
 	}
 }
 
 func TestAutoResolveEscalateNotEnough(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read"}]}}`
-		w.Write([]byte(resp))
-	}))
+	srv := listServer(t, 2, 0, nil)
 	defer srv.Close()
-
-	mr := NewMemoryReader(srv.URL, "", 3)
-	result := mr.AutoResolve("fs.read", "claude")
-
-	if result.Action != "escalate" {
-		t.Fatalf("expected escalate, got %s", result.Action)
-	}
-	if result.Approved != 2 {
-		t.Fatalf("expected 2 approvals, got %d", result.Approved)
+	result := NewMemoryReader(srv.URL, "", 3).AutoResolve("fs.read", "claude")
+	if result.Action != "escalate" || result.Approved != 2 {
+		t.Fatalf("expected escalate on 2 approvals, got %+v", result)
 	}
 }
 
 func TestAutoResolveEscalateRejections(t *testing.T) {
+	srv := listServer(t, 5, 1, nil)
+	defer srv.Close()
+	result := NewMemoryReader(srv.URL, "", 3).AutoResolve("fs.read", "claude")
+	if result.Action != "escalate" || result.Rejected != 1 {
+		t.Fatalf("one refusal must block, got %+v", result)
+	}
+}
+
+func TestResolverKindTagsWhoDecided(t *testing.T) {
+	for by, want := range map[string]string{
+		"user:marc": "human", "http:127.0.0.1:5000": "human", "cli": "human",
+		"supervisor:supervisor": "supervisor", "supervisor:mem7": "mem7", "system:timeout": "system",
+	} {
+		if got := resolverKind(by); got != want {
+			t.Errorf("resolverKind(%q) = %q, want %q", by, got, want)
+		}
+	}
+}
+
+func TestAutoResolveMem7Answer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read\nrejected by user:marc — agent:claude tool:fs.read"}]}}`
-		w.Write([]byte(resp))
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"something else"}]}}`))
+	}))
+	defer srv.Close()
+	if r := NewMemoryReader(srv.URL, "", 3).AutoResolve("fs.read", "claude"); r.Action != "escalate" {
+		t.Fatalf("an unreadable mem7 answer must escalate, got %+v", r)
+	}
+}
+
+func TestAutoResolveAuthToken(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"No memories found."}]}}`))
 	}))
 	defer srv.Close()
 
-	mr := NewMemoryReader(srv.URL, "", 3)
-	result := mr.AutoResolve("fs.read", "claude")
-
-	if result.Action != "escalate" {
-		t.Fatalf("expected escalate with rejections, got %s", result.Action)
-	}
-	if result.Rejected != 1 {
-		t.Fatalf("expected 1 rejection, got %d", result.Rejected)
+	NewMemoryReader(srv.URL, "secret-token", 3).AutoResolve("fs.read", "claude")
+	if gotAuth != "Bearer secret-token" {
+		t.Fatalf("expected auth header 'Bearer secret-token', got %q", gotAuth)
 	}
 }
 
@@ -245,22 +271,6 @@ func TestAutoResolveMem7Down(t *testing.T) {
 	result := mr.AutoResolve("fs.read", "claude")
 	if result.Action != "escalate" {
 		t.Fatalf("expected escalate on unreachable mem7, got %s", result.Action)
-	}
-}
-
-func TestAutoResolveAuthToken(t *testing.T) {
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":""}]}}`))
-	}))
-	defer srv.Close()
-
-	mr := NewMemoryReader(srv.URL, "secret-token", 3)
-	mr.AutoResolve("fs.read", "claude")
-
-	if gotAuth != "Bearer secret-token" {
-		t.Fatalf("expected auth header 'Bearer secret-token', got %q", gotAuth)
 	}
 }
 
@@ -281,22 +291,7 @@ func TestTryAutoResolveNoReader(t *testing.T) {
 }
 
 func TestTryAutoResolveWritesDecision(t *testing.T) {
-	// mem7 search returns 3 approvals
-	searchSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		var payload map[string]any
-		json.Unmarshal(body, &payload)
-		params := payload["params"].(map[string]any)
-
-		if params["name"] == "memory_search" {
-			resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read\napproved by user:marc — agent:claude tool:fs.read"}]}}`
-			w.Write([]byte(resp))
-		} else if params["name"] == "memory_store" {
-			// Auto-approval decision write
-			w.WriteHeader(200)
-			w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{}}`))
-		}
-	}))
+	searchSrv := listServer(t, 3, 0, nil)
 	defer searchSrv.Close()
 
 	s := NewStore(5 * time.Minute)
@@ -355,12 +350,8 @@ func TestMemoryWriterDeniedDecision(t *testing.T) {
 // Precedents approve only what AutoApprovable allows: a write with three
 // approved precedents still goes to the supervisor, and mem7 is not asked.
 func TestAutoApprovableGatesPrecedents(t *testing.T) {
-	var queried int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		queried++
-		resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.write"}]}}`
-		w.Write([]byte(resp))
-	}))
+	var asked [][]string
+	srv := listServer(t, 3, 0, &asked)
 	defer srv.Close()
 
 	s := NewStore(time.Minute)
@@ -370,8 +361,8 @@ func TestAutoApprovableGatesPrecedents(t *testing.T) {
 	if res := s.TryAutoResolveSafe("claude", "fs.write", map[string]any{"path": "/home/u/.bashrc"}); res != nil {
 		t.Fatalf("a write was auto-approved from precedents: %+v", res)
 	}
-	if queried != 0 {
-		t.Fatalf("mem7 was queried %d times for a tool that cannot be auto-approved", queried)
+	if len(asked) != 0 {
+		t.Fatalf("mem7 was queried %d times for a tool that cannot be auto-approved", len(asked))
 	}
 	if res := s.TryAutoResolveSafe("claude", "fs.read", map[string]any{"path": "/x"}); res == nil {
 		t.Fatal("a read with three approved precedents was not auto-approved")

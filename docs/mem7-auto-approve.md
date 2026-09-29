@@ -163,3 +163,9 @@ A growing `failed` count means mem7 is down — auto-approve will escalate every
 ## Reads only, by default
 
 A precedent is keyed on agent and tool, not on the arguments: three approved `filesystem.write_file` in a project would let a fourth write anywhere (`~/.bashrc`) through, around the supervisor. Since 2026-09-29, precedents approve only tools that `registry.Classify` reads as a named read (the `family: named`, `access: read` of `GET /tools`); writes, generic tools (shell, SQL) and tools of unknown access go on to the supervisor or the human, and mem7 is not queried for them. `auto_approve_writes: true` restores the former behaviour.
+
+## What counts as a precedent
+
+Since 2026-09-29 (second fix of the day): only **human** approvals of **exactly** this tool and this agent count, and one refusal from anyone (human or supervisor) blocks. Each decision written to mem7 is tagged with who settled it (`by:human`, `by:supervisor`, `by:mem7`, `by:system`), and precedents are read with `memory_list` on exact tags (`decision`, `approved`, `by:human`, `<tool>`, `agent:<id>`; then `denied` for refusals), not with a semantic search.
+
+Before, the count read the lines of a semantic search limited to 10 results: an approval by auto-approval itself (`supervisor:mem7`) counted as a precedent, so the count fed itself (3, then 4, 5, 6 without a human); an approval by sup7 counted like a human one, turning an L1 decision into a way around L1; and a refusal beyond the first 10 results was never seen. Decisions written before the tag existed carry no `by:` tag and no longer count.

@@ -1,8 +1,6 @@
 package approval
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -212,11 +210,7 @@ func TestRemaining(t *testing.T) {
 // auto-approval on every transport: a routine pattern that mem7 would approve is
 // still sent back to a human when the params carry an injection.
 func TestTryAutoResolveSafeBlocksInjection(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// mem7 reports 3 past approvals → would auto-approve.
-		resp := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"approved by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.write\napproved by user:marc — agent:claude tool:fs.write"}]}}`
-		w.Write([]byte(resp))
-	}))
+	srv := listServer(t, 3, 0, nil) // mem7 reports 3 human approvals → would auto-approve
 	defer srv.Close()
 
 	s := NewStore(30 * time.Second)
