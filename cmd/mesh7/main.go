@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/KTCrisis/flux7-mesh/config"
 	"github.com/KTCrisis/flux7-mesh/mcp"
@@ -110,6 +111,7 @@ func main() {
 			SupervisorMode:   m.cfg.Supervisor.IsEnabled(),
 			SupervisorAgents: m.cfg.Supervisor.SupervisorAgents,
 			ApprovalChannel:  m.cfg.Approval.Channel,
+			ApprovalWait:     time.Duration(m.cfg.Approval.WaitSeconds * float64(time.Second)),
 			HideDenied:       m.cfg.HideDeniedTools,
 		}
 		if err := server.Run(); err != nil {

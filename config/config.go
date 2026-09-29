@@ -188,6 +188,13 @@ type ApprovalConfig struct {
 	//   tty-fallback — try the TTY prompt, fall back to the queue (default, historical behavior)
 	// The HTTP proxy path always uses the queue regardless of this setting.
 	Channel string `yaml:"channel"`
+	// WaitSeconds is how long a non-blocking MCP call waits for an automatic
+	// decision (a supervisor such as sup7) before answering "approval
+	// required". Decided in time, the call runs (or is refused) in the same
+	// request and the agent never retries; otherwise the usual flow applies.
+	// 0 (default) answers at once. Kept short: a stdio session is blocked
+	// while it waits, and a human never answers within it.
+	WaitSeconds float64 `yaml:"wait_seconds"`
 }
 
 // MCPServerConfig declares an upstream MCP server to connect to.
