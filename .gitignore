@@ -42,6 +42,9 @@ state.db.bak-*
 *.db-shm
 *.local.yaml
 policies/*.local.yaml
+# backups of local configs (hand edits, console edits): never committed
+*.local.yaml.bak*
+policies/*.bak*
 dist/
 policies/*.yaml
 !policies/default.yaml
