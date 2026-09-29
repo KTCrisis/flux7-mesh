@@ -55,8 +55,9 @@ type MCPForwarder interface {
 type Handler struct {
 	Registry         *registry.Registry
 	Policy           *policy.Engine
-	PolicyEditing    *PolicyEditing // nil: PUT /policies/... answers 501
-	Pins             *pin.Store     // nil: catalogue pinning off
+	PolicyEditing    *PolicyEditing           // nil: PUT /policies/... answers 501
+	ApprovalSettings *ApprovalSettingsEditing // nil: PUT /approvals/settings answers 501
+	Pins             *pin.Store               // nil: catalogue pinning off
 	Traces           *trace.Store
 	Approvals        *approval.Store
 	RateLimiter      *ratelimit.Limiter
@@ -128,6 +129,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.admin(r, w, h.handleOTELTraces)
 	case r.Method == "GET" && r.URL.Path == "/approvals":
 		h.admin(r, w, h.handleListApprovals)
+	case r.Method == "GET" && r.URL.Path == "/approvals/settings":
+		h.admin(r, w, h.handleGetApprovalSettings)
+	case r.Method == "PUT" && r.URL.Path == "/approvals/settings":
+		h.admin(r, w, h.handlePutApprovalSettings)
 	case r.Method == "GET" && r.URL.Path == "/approvals/precedents":
 		h.admin(r, w, h.handlePrecedents)
 	case r.Method == "POST" && r.URL.Path == "/approvals/precedents/forget":

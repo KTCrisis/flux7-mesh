@@ -74,6 +74,7 @@ type Store struct {
 	pending      map[string]*PendingApproval
 	claimed      map[string]bool // approved ids already used by ClaimApproved
 	timeout      time.Duration
+	settings     Settings // runtime approval settings, changed without restart
 	db           *sql.DB
 	Notifier     *Notifier
 	MemoryWriter *MemoryWriter
@@ -94,7 +95,10 @@ func (s *Store) SetDB(db *sql.DB) { s.db = db }
 // Centralising the guard here keeps every transport (HTTP, MCP stdio, MCP HTTP)
 // consistent instead of each call site remembering to check separately.
 func (s *Store) TryAutoResolveSafe(agentID, tool string, params map[string]any) *Resolution {
-	if s != nil && s.AutoApprovable != nil && !s.AutoApprovable(tool) {
+	if s == nil || !s.Settings().AutoApprove {
+		return nil
+	}
+	if s.AutoApprovable != nil && !s.AutoApprovable(tool) {
 		return nil
 	}
 	if supervisor.DetectInjection(params) {
@@ -143,12 +147,78 @@ func NewStore(timeout time.Duration) *Store {
 		pending: make(map[string]*PendingApproval),
 		claimed: make(map[string]bool),
 		timeout: timeout,
+		// auto-approval runs as soon as a MemoryReader is set, as before
+		// settings existed; the daemon applies the configured values
+		settings: Settings{AutoApprove: true, MinApprovals: 3},
 	}
 }
 
 // Timeout returns the configured default timeout.
 func (s *Store) Timeout() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.timeout
+}
+
+// Settings are the approval knobs an operator may change at runtime, from
+// the console, without restarting the mesh. They mirror config.ApprovalConfig
+// and the auto-approval fields of config.SupervisorConfig.
+type Settings struct {
+	TimeoutSeconds    int     `json:"timeout_seconds"`
+	WaitSeconds       float64 `json:"wait_seconds"`
+	AutoApprove       bool    `json:"auto_approve"`
+	MinApprovals      int     `json:"min_approvals"`
+	AutoApproveWrites bool    `json:"auto_approve_writes"`
+}
+
+// Validate refuses settings that would make approval meaningless or block
+// sessions: the wait is for a supervisor, never for a human.
+func (st Settings) Validate() error {
+	switch {
+	case st.TimeoutSeconds < 30 || st.TimeoutSeconds > 3600:
+		return fmt.Errorf("timeout_seconds must be between 30 and 3600")
+	case st.WaitSeconds < 0 || st.WaitSeconds > 10:
+		return fmt.Errorf("wait_seconds must be between 0 and 10 (a stdio session is blocked while it waits)")
+	case st.MinApprovals < 1 || st.MinApprovals > 100:
+		return fmt.Errorf("min_approvals must be between 1 and 100")
+	}
+	return nil
+}
+
+// Settings returns the approval settings in force.
+func (s *Store) Settings() Settings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st := s.settings
+	st.TimeoutSeconds = int(s.timeout / time.Second)
+	if s.MemoryReader != nil {
+		st.MinApprovals = s.MemoryReader.MinApprovals()
+	}
+	return st
+}
+
+// Apply puts new settings in force at once: the next submitted approval,
+// the next wait and the next auto-approval use them.
+func (s *Store) Apply(st Settings) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = st
+	if st.TimeoutSeconds > 0 {
+		s.timeout = time.Duration(st.TimeoutSeconds) * time.Second
+	}
+	if s.MemoryReader != nil && st.MinApprovals > 0 {
+		s.MemoryReader.SetMinApprovals(st.MinApprovals)
+	}
+}
+
+// Wait is how long a non-blocking call waits for an automatic decision.
+func (s *Store) Wait() time.Duration {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return time.Duration(s.settings.WaitSeconds * float64(time.Second))
 }
 
 // Submit creates a pending approval and starts a timeout goroutine.
@@ -181,7 +251,7 @@ func (s *Store) SubmitWithTrace(agentID, tool, policyRule string, params map[str
 
 	s.dbSave(pa)
 	s.Notifier.OnSubmit(pa)
-	go s.timeoutAfter(pa, s.timeout)
+	go s.timeoutAfter(pa, s.Timeout())
 
 	return pa
 }
