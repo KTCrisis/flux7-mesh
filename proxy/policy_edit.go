@@ -164,7 +164,7 @@ func (h *Handler) handlePolicyEdit(w http.ResponseWriter, r *http.Request) {
 		Policy:     "allow",
 		PolicyRule: "control-plane",
 		StatusCode: 200,
-		Timestamp:  time.Now(),
+		Timestamp:  time.Now().UTC(), // every other trace entry is UTC
 	})
 
 	writeJSON(w, 200, map[string]any{

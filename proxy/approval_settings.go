@@ -101,7 +101,11 @@ func (h *Handler) handlePutApprovalSettings(w http.ResponseWriter, r *http.Reque
 	if fi, err := os.Stat(se.ConfigPath); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	backup := se.ConfigPath + ".bak-" + time.Now().Format("20060102-150405")
+	backup, err := uniqueBackup(se.ConfigPath)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "backup: " + err.Error()})
+		return
+	}
 	if err := os.WriteFile(backup, src, mode); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "backup: " + err.Error()})
 		return
@@ -139,7 +143,24 @@ func (h *Handler) handlePutApprovalSettings(w http.ResponseWriter, r *http.Reque
 		Policy:     "allow",
 		PolicyRule: "control-plane",
 		StatusCode: 200,
-		Timestamp:  time.Now(),
+		Timestamp:  time.Now().UTC(), // every other trace entry is UTC
 	})
 	writeJSON(w, 200, map[string]any{"settings": next, "changed": changed, "backup": backup})
+}
+
+// uniqueBackup names a backup that does not exist yet: two edits within the
+// same second must not overwrite each other's backup (seen on 2026-09-29,
+// the original version was lost).
+func uniqueBackup(path string) (string, error) {
+	base := path + ".bak-" + time.Now().UTC().Format("20060102-150405")
+	for i := 0; i < 100; i++ {
+		name := base
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", base, i)
+		}
+		if _, err := os.Stat(name); os.IsNotExist(err) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no free backup name next to %s", path)
 }
