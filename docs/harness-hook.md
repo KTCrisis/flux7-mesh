@@ -189,7 +189,8 @@ evaluated as the harness spells them, prefix included.
 
 ## Known limits
 
-Policy conditions compare with `==`, `!=`, `<`, `<=`, `>`, `>=` only. There is
-no substring or regex operator, so a rule can govern `Bash` as a whole but not
-`rm -rf` inside the command string. Governing at command granularity needs a
-`contains` operator in the condition engine — it does not exist today.
+Conditions match text, not meaning: `contains`, `starts_with` and their
+negations are case-sensitive and do not parse the shell, so `rm -r -f`, a
+variable expansion or a script file pass a guard written for `rm -rf`. They
+catch accidents, not an adversary. See
+[What string matching does not do](https://docs.flux7.art/mesh7/writing-policies/#what-string-matching-does-not-do).
