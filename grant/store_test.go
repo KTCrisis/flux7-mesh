@@ -108,3 +108,39 @@ func TestGrantRemaining(t *testing.T) {
 		t.Fatalf("remaining should be ~10min, got %v", r)
 	}
 }
+
+func TestRevokeWhereThenRestore(t *testing.T) {
+	s := NewStore()
+	a := s.Add("claude", "filesystem.*", "user", 30*time.Minute)
+	s.Add("scout7", "gmail.*", "user", 30*time.Minute)
+
+	revoked := s.RevokeWhere(func(g *Grant) bool { return g.Agent == "claude" })
+	if len(revoked) != 1 || revoked[0].ID != a.ID {
+		t.Fatalf("expected claude's grant revoked, got %+v", revoked)
+	}
+	if s.Check("claude", "filesystem.read_file") != nil {
+		t.Fatal("revoked grant still applies")
+	}
+	if s.Check("scout7", "gmail.send_email") == nil {
+		t.Fatal("another agent's grant must stay")
+	}
+
+	if !s.Restore(revoked[0]) {
+		t.Fatal("restore failed")
+	}
+	g := s.Check("claude", "filesystem.read_file")
+	if g == nil || g.ID != a.ID || !g.ExpiresAt.Equal(a.ExpiresAt) {
+		t.Fatalf("restored grant must keep its ID and expiry, got %+v", g)
+	}
+	if s.Restore(revoked[0]) {
+		t.Fatal("restoring twice must not duplicate the grant")
+	}
+}
+
+func TestRestoreSkipsExpired(t *testing.T) {
+	s := NewStore()
+	g := Grant{ID: "old", Agent: "claude", Tools: "*", ExpiresAt: time.Now().Add(-time.Minute)}
+	if s.Restore(g) {
+		t.Fatal("an expired grant must not come back")
+	}
+}

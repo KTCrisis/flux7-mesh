@@ -31,7 +31,7 @@ func Open(path string) (*sql.DB, error) {
 
 // schemaVersion is the migration level this build expects. Bump it with every
 // new `if version < N` block below.
-const schemaVersion = 3
+const schemaVersion = 4
 
 func migrate(db *sql.DB) error {
 	var version int
@@ -99,11 +99,37 @@ func migrate(db *sql.DB) error {
 				description TEXT DEFAULT '',
 				pinned_at TEXT NOT NULL
 			)`,
-			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+			`PRAGMA user_version = 3`,
 		}
 		for _, s := range stmts {
 			if _, err := db.Exec(s); err != nil {
 				return fmt.Errorf("schema v3: %w", err)
+			}
+		}
+	}
+
+	// v4 records emergency stops (package halt). A row is active while
+	// resumed_at is empty; the grants it revoked are kept as JSON so that
+	// resuming can put back those still valid.
+	if version < 4 {
+		stmts := []string{
+			`CREATE TABLE IF NOT EXISTS halts (
+				id TEXT PRIMARY KEY,
+				scope TEXT NOT NULL,
+				target TEXT DEFAULT '',
+				reason TEXT DEFAULT '',
+				created_by TEXT DEFAULT '',
+				created_at TEXT NOT NULL,
+				resumed_by TEXT DEFAULT '',
+				resumed_at TEXT DEFAULT '',
+				revoked_grants TEXT DEFAULT '[]'
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_halts_active ON halts(resumed_at)`,
+			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("schema v4: %w", err)
 			}
 		}
 	}

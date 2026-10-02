@@ -18,6 +18,7 @@ import (
 	"github.com/KTCrisis/flux7-mesh/config"
 	meshexec "github.com/KTCrisis/flux7-mesh/exec"
 	"github.com/KTCrisis/flux7-mesh/grant"
+	"github.com/KTCrisis/flux7-mesh/halt"
 	"github.com/KTCrisis/flux7-mesh/mcp"
 	"github.com/KTCrisis/flux7-mesh/policy"
 	"github.com/KTCrisis/flux7-mesh/proxy"
@@ -248,6 +249,16 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	m.handler.RateLimiter = limiter
 	m.handler.Grants = m.grants
 	m.handler.Pins = m.pins
+	// Emergency stop: always on. Shared through the state database when there
+	// is one, so every mesh7 process honours a stop; in memory otherwise.
+	halts, err := halt.NewStore(stateDB)
+	if err != nil {
+		return nil, fmt.Errorf("halts: %w", err)
+	}
+	if active := halts.Active(); len(active) > 0 {
+		slog.Warn("emergency stop in force", "count", len(active), "first", active[0].Describe())
+	}
+	m.handler.Halts = halts
 	m.handler.SupervisorCfg = cfg.Supervisor
 	m.handler.Version = version
 	m.handler.ConfigID = configID(configPath)

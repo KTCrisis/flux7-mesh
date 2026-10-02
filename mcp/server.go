@@ -489,6 +489,19 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 		return s.handleCatalog(arguments)
 	}
 
+	// Emergency stop: before the registry, the policy, the grants and the
+	// approvals. The virtual tools above stay reachable so that a supervisor
+	// can still read the state; none of them runs a tool.
+	if s.Handler != nil {
+		if hl := s.Handler.HaltFor(s.AgentID, s.SessionID); hl != nil {
+			s.Handler.RecordHalted(hl, tc, s.SessionID, s.AgentID, s.UserID, toolName, arguments, start)
+			return map[string]any{
+				"content": []map[string]any{{"type": "text", "text": hl.Message()}},
+				"isError": true,
+			}, nil
+		}
+	}
+
 	// Look up tool (with CLI fallback for dynamic dispatch)
 	tool := s.Registry.Get(toolName)
 	if tool == nil {

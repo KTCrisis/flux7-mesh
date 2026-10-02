@@ -157,3 +157,31 @@ func TestGrantDurationDefaultsToOneHour(t *testing.T) {
 		t.Errorf("env override ignored, got %q", d)
 	}
 }
+
+func TestParseHaltFlags(t *testing.T) {
+	cases := []struct {
+		args    []string
+		scope   string
+		target  string
+		reason  string
+		wantErr bool
+	}{
+		{[]string{"--all"}, "all", "", "", false},
+		{[]string{"--agent", "scout7", "--reason", "loops"}, "agent", "scout7", "loops", false},
+		{[]string{"--session", "s-42"}, "session", "s-42", "", false},
+		{[]string{}, "", "", "", true},                           // no scope
+		{[]string{"--all", "--agent", "x"}, "", "", "", true},    // two scopes
+		{[]string{"--agent"}, "", "", "", true},                  // no value
+		{[]string{"--agent", "--reason", "x"}, "", "", "", true}, // flag taken as value
+		{[]string{"--everything"}, "", "", "", true},             // unknown flag
+	}
+	for _, c := range cases {
+		req, err := parseHaltFlags(c.args)
+		if (err != nil) != c.wantErr {
+			t.Fatalf("%v: err = %v, wantErr %v", c.args, err, c.wantErr)
+		}
+		if !c.wantErr && (req.Scope != c.scope || req.Target != c.target || req.Reason != c.reason) {
+			t.Fatalf("%v: got %+v", c.args, req)
+		}
+	}
+}
