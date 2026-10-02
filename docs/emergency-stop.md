@@ -58,6 +58,36 @@ The **Emergency stop** page stops everything in one click, or one agent or
 session, and lists the stops in force with a Resume button. While a stop is in
 force, a red banner shows on every page of the console.
 
+## How it works inside
+
+**One request.** The console button, `mesh halt` and the API all end in `POST /halts` on the daemon, a control-plane route.
+
+**When the stop arrives**, mesh7, in this order:
+
+1. records it in the `halts` table of the state database, after checking the scope; an identical stop already in force is returned instead of a second one;
+2. revokes the grants in scope and keeps a copy of them on the stop, for the resume;
+3. denies the approvals waiting in scope: an agent blocked on a pending approval gets its refusal now, signed `halt:<id>`, instead of at the timeout;
+4. records `mesh.halt` in the trace chain: who, what scope, why, which grants and approvals.
+
+**At the agent's next call**, the stop is the first check, before everything else:
+
+```text
+tool call
+  │
+  ├─ 0. a stop in force for this agent or session?  → refused here
+  ├─ 1. rate limit
+  ├─ 2. policy (allow / deny / human_approval)
+  ├─ 3. temporal grant
+  ├─ 4. mem7 precedents, supervisor, human
+  └─ 5. forward to the tool
+```
+
+The tool is never reached, and the refused call is traced (`policy: halted`, `policy_rule: halt:<id>`), so what the agent tried during the stop stays visible.
+
+**Across processes.** Each mesh7 process reloads the active stops from the database at most every second before deciding. A standalone `mesh7 --mcp` client, started before the stop and holding its own memory, is therefore stopped within a second. If a reload fails (database locked, disk full), the process keeps the stops it already knew instead of dropping them: a failure cannot lift a stop.
+
+**On resume**, the row is marked resumed (who, when), calls go through the normal chain again, and the revoked grants come back with their original ID, expiry and origin, except those that expired during the stop. The resume is traced as `mesh.resume` with the grants restored.
+
 ## HTTP API (control plane)
 
 | Method | Path | Body | Answer |
