@@ -23,7 +23,7 @@ Full documentation: **[docs.flux7.art/mesh7](https://docs.flux7.art/mesh7/)**
 |---|---|
 | **Policy** | Allow, deny or ask, per agent and per tool: globs, conditions on arguments, per-agent files, hot reload. [Writing policies](https://docs.flux7.art/mesh7/writing-policies/) |
 | **Human approval** | A call that needs a human waits in a queue (terminal, CLI, HTTP, [console](https://github.com/KTCrisis/flux7-console)); time-boxed grants act as `sudo` for agents. [Approval flow](https://docs.flux7.art/mesh7/approval-flow/) |
-| **Emergency stop** | Stop every call of one agent, one session or everything at once; pending approvals are denied, grants revoked and put back on resume. CLI, HTTP and console. [Emergency stop](docs/emergency-stop.md) |
+| **Emergency stop** | Stop every call of one agent, one session or everything at once; pending approvals are denied, grants revoked and put back on resume. CLI, HTTP and console. [Emergency stop](https://docs.flux7.art/mesh7/emergency-stop/) |
 | **Traces** | Every call and decision, grouped by session, HMAC hash-chained and verifiable, exported over OTLP. [Trace integrity](https://docs.flux7.art/mesh7/trace-integrity/) · [Observability](https://docs.flux7.art/mesh7/otel/) |
 | **Tool catalogue** | Each tool classified (named or generic, read or write) from what it declares; a draft policy from `discover`; per-agent decisions; one tool's action changed from the control plane. Opt-in: pin upstream catalogues against silent changes, hide what can only be denied. [Tool classification](https://docs.flux7.art/mesh7/tool-classification/) |
 | **Identity** | JWT from your IdP, including the human an agent acts for. [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/) |
