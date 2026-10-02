@@ -21,6 +21,7 @@ import (
 	"github.com/KTCrisis/flux7-mesh/config"
 	meshexec "github.com/KTCrisis/flux7-mesh/exec"
 	"github.com/KTCrisis/flux7-mesh/grant"
+	"github.com/KTCrisis/flux7-mesh/halt"
 	"github.com/KTCrisis/flux7-mesh/internal/match"
 	"github.com/KTCrisis/flux7-mesh/pin"
 	"github.com/KTCrisis/flux7-mesh/policy"
@@ -62,6 +63,7 @@ type Handler struct {
 	Approvals        *approval.Store
 	RateLimiter      *ratelimit.Limiter
 	Grants           *grant.Store
+	Halts            *halt.Store // nil: emergency stop off (POST /halts answers 501)
 	Client           *http.Client
 	MCPForwarder     MCPForwarder
 	CLIRunner        *meshexec.Runner
@@ -149,6 +151,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.admin(r, w, h.handleCreateGrant)
 	case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/grants/"):
 		h.admin(r, w, h.handleRevokeGrant)
+	case r.Method == "GET" && r.URL.Path == "/halts":
+		h.admin(r, w, h.handleListHalts)
+	case r.Method == "POST" && r.URL.Path == "/halts":
+		h.admin(r, w, h.handleCreateHalt)
+	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/halts/") && strings.HasSuffix(r.URL.Path, "/resume"):
+		h.admin(r, w, h.handleResumeHalt)
 	case r.Method == "GET" && r.URL.Path == "/sessions":
 		h.admin(r, w, h.handleListSessions)
 	case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/sessions/"):
@@ -234,6 +242,15 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	var req ToolCallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, ToolCallResponse{Error: "invalid JSON body", Policy: "error"})
+		return
+	}
+
+	// 1b. Emergency stop: before the registry, the rate limiter, the policy,
+	// the grants and the approvals. Nothing configured elsewhere lets a halted
+	// call through.
+	if hl := h.HaltFor(agentID, sessionID); hl != nil {
+		h.RecordHalted(hl, tc, sessionID, agentID, userID, toolName, req.Params, start)
+		writeJSON(w, 403, ToolCallResponse{TraceID: traceID, Policy: "halted", Error: hl.Message()})
 		return
 	}
 
@@ -582,6 +599,17 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	traceID := tc.TraceID
 	sessionID := extractSessionID(r)
 	start := time.Now()
+
+	if hl := h.HaltFor(agentID, sessionID); hl != nil {
+		h.RecordHalted(hl, tc, sessionID, agentID, userID, toolName, req.Arguments, start)
+		// "deny" so that every existing client (SDK, Claude Code hook) refuses
+		// the call; "halted" lets a newer one tell a stop from a policy refusal.
+		writeJSON(w, 403, map[string]any{
+			"action": "deny", "halted": true, "rule": "halt:" + hl.ID, "reason": hl.Message(),
+			"agent": agentID, "tool": toolName, "trace_id": traceID,
+		})
+		return
+	}
 
 	decision := h.ApplyFloors(h.Policy.Evaluate(agentID, toolName, req.Arguments), h.resolveTool(toolName))
 

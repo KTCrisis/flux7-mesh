@@ -115,6 +115,48 @@ func (s *Store) Revoke(id string) bool {
 	return false
 }
 
+// RevokeWhere removes every active grant the predicate selects and returns
+// copies of them, so that the caller can put them back later (an emergency
+// stop revokes an agent's grants, and resuming restores those still valid).
+func (s *Store) RevokeWhere(selects func(*Grant) bool) []Grant {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var revoked []Grant
+	kept := s.grants[:0]
+	for _, g := range s.grants {
+		if !g.IsExpired() && selects(g) {
+			revoked = append(revoked, *g)
+			s.dbDelete(g.ID)
+			continue
+		}
+		kept = append(kept, g)
+	}
+	s.grants = kept
+	return revoked
+}
+
+// Restore puts back a grant revoked earlier, with its ID, expiry and origin
+// unchanged. An expired grant is not restored: it would no longer be in force
+// anyway. It returns whether the grant was restored.
+func (s *Store) Restore(g Grant) bool {
+	if g.IsExpired() {
+		return false
+	}
+	s.mu.Lock()
+	for _, existing := range s.grants {
+		if existing.ID == g.ID {
+			s.mu.Unlock()
+			return false
+		}
+	}
+	restored := g
+	s.grants = append(s.grants, &restored)
+	s.mu.Unlock()
+	s.dbSave(&restored)
+	return true
+}
+
 // List returns all active (non-expired) grants.
 func (s *Store) List() []*Grant {
 	s.mu.RLock()

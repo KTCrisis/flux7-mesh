@@ -48,6 +48,16 @@ func main() {
 		resolve(os.Args[2], "deny", false)
 	case "watch":
 		cmdWatch()
+	case "halt":
+		cmdHalt(os.Args[2:])
+	case "halts":
+		cmdHalts()
+	case "resume":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: mesh resume <halt-id>")
+			os.Exit(1)
+		}
+		cmdResume(os.Args[2])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		usage()
@@ -64,6 +74,13 @@ commands:
   approve <id>         Approve a pending request
   deny <id>            Deny a pending request
   watch                Interactive mode — poll and prompt for each approval
+  halt                 Emergency stop: --all, --agent <id> or --session <id>,
+                       with an optional --reason. Blocks every tool call in
+                       that scope, denies the approvals waiting in it and
+                       revokes the agent's grants (all grants for --all)
+  halts                List the emergency stops in force
+  resume <halt-id>     Lift a stop; the grants it revoked come back if they
+                       have not expired
 
 approve flags:
   --grant <duration>   Also open a temporal grant, so the same call does not
@@ -76,6 +93,8 @@ approve flags:
 
 env:
   MESH_URL             Agent-mesh URL (default http://localhost:9090)
+  MESH_ADMIN_TOKEN     Control-plane token, sent by halt / halts / resume
+                       (required when mesh7 is not on the loopback)
   MESH_GRANT_DURATION  Duration used by [g] in watch (default 1h)`)
 }
 
