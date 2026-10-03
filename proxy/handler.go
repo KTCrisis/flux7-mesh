@@ -22,6 +22,7 @@ import (
 	meshexec "github.com/KTCrisis/flux7-mesh/exec"
 	"github.com/KTCrisis/flux7-mesh/grant"
 	"github.com/KTCrisis/flux7-mesh/halt"
+	"github.com/KTCrisis/flux7-mesh/internal/callmeta"
 	"github.com/KTCrisis/flux7-mesh/internal/match"
 	"github.com/KTCrisis/flux7-mesh/pin"
 	"github.com/KTCrisis/flux7-mesh/policy"
@@ -415,7 +416,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 			if h.RateLimiter != nil {
 				h.RateLimiter.Record(agentID, toolName, fmt.Sprintf("%v", req.Params))
 			}
-			result, statusCode, err := h.Forward(tool, req.Params, tc)
+			result, statusCode, err := h.ForwardAs(tool, req.Params, tc, agentID)
 			totalMs := time.Since(start).Milliseconds()
 			inTok, outTok, tokSrc := resolveTokens(toolName, req.Params, result)
 			h.Traces.Update(entry.TraceID, func(e *trace.Entry) {
@@ -469,7 +470,7 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 6. Forward to backend
-	result, statusCode, err := h.Forward(tool, req.Params, tc)
+	result, statusCode, err := h.ForwardAs(tool, req.Params, tc, agentID)
 	latency := time.Since(start).Milliseconds()
 	inTok, outTok, tokSrc := resolveTokens(toolName, req.Params, result)
 
@@ -668,9 +669,16 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 // The trace context is propagated to HTTP backends via Traceparent (the mesh
 // span as parent) and X-Trace-Id headers.
 func (h *Handler) Forward(tool *registry.Tool, params map[string]any, tc trace.Context) (any, int, error) {
+	return h.ForwardAs(tool, params, tc, "")
+}
+
+// ForwardAs is Forward for a known agent. MCP upstreams receive the trace
+// context, and the agent if they opted in (forward_identity), in the `_meta`
+// of tools/call.
+func (h *Handler) ForwardAs(tool *registry.Tool, params map[string]any, tc trace.Context, agent string) (any, int, error) {
 	switch tool.Source {
 	case "mcp":
-		return h.forwardMCP(tool, params)
+		return h.forwardMCP(tool, params, tc, agent)
 	case "cli":
 		return h.forwardCLI(tool, params)
 	default:
@@ -749,7 +757,7 @@ func (h *Handler) forwardHTTP(tool *registry.Tool, params map[string]any, tc tra
 }
 
 // forwardMCP forwards the call to an upstream MCP server.
-func (h *Handler) forwardMCP(tool *registry.Tool, params map[string]any) (any, int, error) {
+func (h *Handler) forwardMCP(tool *registry.Tool, params map[string]any, tc trace.Context, agent string) (any, int, error) {
 	if h.MCPForwarder == nil {
 		return nil, 0, fmt.Errorf("no MCP forwarder configured")
 	}
@@ -757,7 +765,14 @@ func (h *Handler) forwardMCP(tool *registry.Tool, params map[string]any) (any, i
 	// Strip namespace prefix to get the original tool name
 	originalName := strings.TrimPrefix(tool.Name, tool.MCPServer+".")
 
-	ctx := context.Background()
+	meta := map[string]any{}
+	if tc.TraceID != "" {
+		meta[callmeta.Traceparent] = tc.Traceparent()
+	}
+	if agent != "" {
+		meta[callmeta.Agent] = agent
+	}
+	ctx := callmeta.With(context.Background(), meta)
 	result, err := h.MCPForwarder.CallTool(ctx, tool.MCPServer, originalName, params)
 	if err != nil {
 		return nil, 502, err

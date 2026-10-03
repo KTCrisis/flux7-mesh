@@ -590,7 +590,7 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 					e.ApprovedBy = resolvedBy
 				})
 
-				result, statusCode, err := s.Handler.Forward(tool, arguments, tc)
+				result, statusCode, err := s.Handler.ForwardAs(tool, arguments, tc, s.AgentID)
 				inTok, outTok, tokSrc := resolveMCPTokens(toolName, arguments, result)
 				s.Traces.Update(entry.TraceID, func(e *trace.Entry) {
 					e.StatusCode = statusCode
@@ -747,7 +747,7 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 	}
 
 	// Forward to backend
-	result, statusCode, err := s.Handler.Forward(tool, arguments, tc)
+	result, statusCode, err := s.Handler.ForwardAs(tool, arguments, tc, s.AgentID)
 	inTok, outTok, tokSrc := resolveMCPTokens(toolName, arguments, result)
 
 	// Trace
@@ -859,7 +859,7 @@ func (s *Server) handleApprovalResolve(args map[string]any) (any, *rpcError) {
 		}, nil
 	}
 
-	result, statusCode, err := s.Handler.Forward(tool, pa.Params, trace.Context{})
+	result, statusCode, err := s.Handler.ForwardAs(tool, pa.Params, trace.Context{}, pa.AgentID)
 	if pa.TraceID != "" {
 		s.Traces.Update(pa.TraceID, func(e *trace.Entry) {
 			e.ApprovalStatus = string(approval.StatusApproved)
@@ -916,7 +916,7 @@ func (s *Server) handleResolution(
 				},
 			}, nil
 		}
-		result, statusCode, err := s.Handler.Forward(tool, arguments, trace.Context{TraceID: entry.TraceID})
+		result, statusCode, err := s.Handler.ForwardAs(tool, arguments, trace.Context{TraceID: entry.TraceID}, s.AgentID)
 		s.Traces.Update(entry.TraceID, func(e *trace.Entry) {
 			e.StatusCode = statusCode
 			e.LatencyMs = time.Since(pending.CreatedAt).Milliseconds()

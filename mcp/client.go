@@ -37,6 +37,11 @@ type MCPClient struct {
 	Args      []string // stdio: args
 	URL       string   // sse / streamable-http: endpoint URL
 
+	// ForwardIdentity lets the calling agent's identity reach this upstream
+	// in `_meta` (see meta.go). Off by default: a remote server has no use
+	// for the mesh's agent names.
+	ForwardIdentity bool
+
 	// transport layer
 	tr    transport
 	newTr func() transport // factory to create a fresh transport for reconnection
@@ -174,10 +179,14 @@ func (c *MCPClient) Status() (status string, lastError string) {
 
 // CallTool invokes a tool on the upstream MCP server.
 func (c *MCPClient) CallTool(ctx context.Context, name string, arguments map[string]any) (any, error) {
-	resp, err := c.send(ctx, "tools/call", map[string]any{
+	params := map[string]any{
 		"name":      name,
 		"arguments": arguments,
-	})
+	}
+	if meta := c.callMeta(ctx); meta != nil {
+		params["_meta"] = meta
+	}
+	resp, err := c.send(ctx, "tools/call", params)
 	if err != nil {
 		return nil, err
 	}

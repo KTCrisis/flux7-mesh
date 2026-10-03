@@ -53,3 +53,39 @@ policies:
 		t.Errorf("policy condition value was expanded: %v", got)
 	}
 }
+
+func TestLoadExpandsUpstreamHeadersAndMemoryToken(t *testing.T) {
+	t.Setenv("MEM7_TEST_TOKEN", "m7-secret")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+memory:
+  url: http://localhost:9070
+  token: "${MEM7_TEST_TOKEN}"
+mcp_servers:
+  - name: memory
+    transport: streamable-http
+    url: http://localhost:9070/mcp
+    forward_identity: true
+    headers:
+      Authorization: "Bearer ${MEM7_TEST_TOKEN}"
+  - name: remote
+    transport: streamable-http
+    url: https://example.org/mcp
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Memory.Token != "m7-secret" {
+		t.Errorf("memory.token = %q", cfg.Memory.Token)
+	}
+	if got := cfg.MCPServers[0].Headers["Authorization"]; got != "Bearer m7-secret" {
+		t.Errorf("upstream header = %q", got)
+	}
+	if !cfg.MCPServers[0].ForwardIdentity || cfg.MCPServers[1].ForwardIdentity {
+		t.Errorf("forward_identity: %v, %v", cfg.MCPServers[0].ForwardIdentity, cfg.MCPServers[1].ForwardIdentity)
+	}
+}
