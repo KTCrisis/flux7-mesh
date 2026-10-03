@@ -887,10 +887,23 @@ func (h *Handler) handleTraceVerify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, st)
 }
 
+// handleTraces lists recent calls, most recent first.
+// Query params: agent, tool, limit (default 100, at most 1000), and trace:
+// every entry of one trace, searched through all the store keeps (what a
+// memory in mem7 or a log line points to).
 func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
-	agent := r.URL.Query().Get("agent")
-	tool := r.URL.Query().Get("tool")
-	writeJSON(w, 200, h.Traces.Query(agent, tool, 100))
+	q := r.URL.Query()
+	if id := q.Get("trace"); id != "" {
+		writeJSON(w, 200, h.Traces.QueryTrace(id))
+		return
+	}
+	limit := 100
+	if l := q.Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = min(n, 1000)
+		}
+	}
+	writeJSON(w, 200, h.Traces.Query(q.Get("agent"), q.Get("tool"), limit))
 }
 
 // handleTraceWhy answers "why was this call allowed?" by returning the chain of

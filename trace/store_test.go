@@ -539,3 +539,22 @@ func TestSharedTraceIDNotFolded(t *testing.T) {
 		t.Errorf("entries = %d, want 2", n)
 	}
 }
+
+func TestQueryTraceFindsOldEntries(t *testing.T) {
+	s := NewStore(1000)
+	s.Record(Entry{TraceID: "old-call", AgentID: "scout7", Tool: "memory.memory_store", Policy: "human_approval"})
+	s.Record(Entry{TraceID: "old-call", AgentID: "scout7", Tool: "memory.memory_store", Policy: "allow"})
+	for i := 0; i < 300; i++ {
+		s.Record(Entry{AgentID: "claude", Tool: "x", Policy: "allow"})
+	}
+	got := s.QueryTrace("old-call")
+	if len(got) != 2 {
+		t.Fatalf("entries = %d, want both events of the trace beyond the last 100 calls", len(got))
+	}
+	if got[0].Policy != "allow" {
+		t.Errorf("most recent first: %q", got[0].Policy)
+	}
+	if len(s.QueryTrace("")) != 0 || len(s.QueryTrace("nope")) != 0 {
+		t.Error("an empty or unknown id matches nothing")
+	}
+}
