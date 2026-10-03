@@ -102,7 +102,7 @@ type JWTConfig struct {
 // MemoryConfig declares an optional mem7 server for persisting decisions.
 type MemoryConfig struct {
 	URL   string `yaml:"url"`   // e.g. "http://localhost:9070"
-	Token string `yaml:"token"` // optional bearer token
+	Token string `yaml:"token"` // optional bearer token; ${VAR} is expanded
 }
 
 // OpenAPIConfig declares an OpenAPI spec to import as governed tools.
@@ -210,7 +210,11 @@ type MCPServerConfig struct {
 	Args      []string          `yaml:"args,omitempty"`
 	Env       map[string]string `yaml:"env,omitempty"`
 	URL       string            `yaml:"url,omitempty"`
-	Headers   map[string]string `yaml:"headers,omitempty"`
+	Headers   map[string]string `yaml:"headers,omitempty"` // values go through os.ExpandEnv
+	// ForwardIdentity sends the calling agent's identity to this upstream in
+	// the `_meta` of each tools/call, for a server that scopes what it serves
+	// by agent (mem7). Pair it with a bearer header so the upstream can trust it.
+	ForwardIdentity bool `yaml:"forward_identity,omitempty"`
 }
 
 type Policy struct {
@@ -355,6 +359,14 @@ func Load(path string) (*Config, error) {
 	for k, v := range cfg.OTELHeaders {
 		cfg.OTELHeaders[k] = os.ExpandEnv(v)
 	}
+	// so are upstream headers and the mem7 token: a bearer token stays in the
+	// service's environment file, never in this YAML
+	for i := range cfg.MCPServers {
+		for k, v := range cfg.MCPServers[i].Headers {
+			cfg.MCPServers[i].Headers[k] = os.ExpandEnv(v)
+		}
+	}
+	cfg.Memory.Token = os.ExpandEnv(cfg.Memory.Token)
 	if cfg.Approval.TimeoutSeconds == 0 {
 		cfg.Approval.TimeoutSeconds = 300
 	}

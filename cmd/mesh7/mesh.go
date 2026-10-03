@@ -319,6 +319,7 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 					slog.Error("unsupported MCP transport", "name", sc.Name, "transport", sc.Transport)
 					return
 				}
+				client.ForwardIdentity = sc.ForwardIdentity
 				if err := client.Connect(ctx); err != nil {
 					slog.Error("failed to connect MCP server", "name", sc.Name, "error", err)
 					return
