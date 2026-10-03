@@ -273,6 +273,24 @@ func (s *Store) Query(agent string, tool string, limit int) []Entry {
 	return result
 }
 
+// QueryTrace returns every entry of one trace (a call, its approval and
+// resolution events), most recent first, across everything the store keeps.
+func (s *Store) QueryTrace(traceID string) []Entry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]Entry, 0)
+	if traceID == "" {
+		return result
+	}
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		if s.entries[i].TraceID == traceID {
+			result = append(result, s.entries[i])
+		}
+	}
+	return result
+}
+
 // QuerySessions returns distinct sessions ordered by most recent activity.
 // Entries without a session ID are excluded.
 func (s *Store) QuerySessions(limit int) []SessionSummary {
