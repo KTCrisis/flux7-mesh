@@ -19,11 +19,15 @@ type ServerStatus struct {
 type Manager struct {
 	mu      sync.RWMutex
 	clients map[string]*MCPClient
+	// retrying: upstreams that failed to connect and are being retried,
+	// shown in ServerStatuses so a missing server is not silent
+	retrying map[string]ServerStatus
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		clients: make(map[string]*MCPClient),
+		clients:  make(map[string]*MCPClient),
+		retrying: make(map[string]ServerStatus),
 	}
 }
 
@@ -31,6 +35,14 @@ func (m *Manager) Add(client *MCPClient) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.clients[client.Name] = client
+	delete(m.retrying, client.Name)
+}
+
+// SetRetrying records an upstream that could not connect and is retried.
+func (m *Manager) SetRetrying(name, transport string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retrying[name] = ServerStatus{Name: name, Transport: transport, Status: "retrying", Error: err.Error(), Tools: []string{}}
 }
 
 func (m *Manager) Get(name string) *MCPClient {
@@ -69,6 +81,9 @@ func (m *Manager) ServerStatuses() any {
 			Error:     lastErr,
 			Tools:     toolNames,
 		})
+	}
+	for _, r := range m.retrying {
+		statuses = append(statuses, r)
 	}
 	return statuses
 }
