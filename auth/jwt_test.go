@@ -269,3 +269,18 @@ func TestResolveIdentityLocalPostureHasNoUser(t *testing.T) {
 		t.Errorf("got %+v", id)
 	}
 }
+
+func TestResolveIdentityLocalPostureRefusesAJWT(t *testing.T) {
+	tok := "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJjbGF1ZGUifQ.c2ln"
+	id, err := ResolveIdentity("Bearer "+tok, nil, false)
+	if err != ErrJWTWithoutValidator {
+		t.Fatalf("err = %v, want ErrJWTWithoutValidator", err)
+	}
+	if id.AgentID != "" {
+		t.Fatalf("a JWT became the agent id %q", id.AgentID)
+	}
+	// a plain bearer keeps its local-posture meaning
+	if id, err := ResolveIdentity("Bearer scout7", nil, false); err != nil || id.AgentID != "scout7" {
+		t.Fatalf("plain bearer: %q, %v", id.AgentID, err)
+	}
+}
