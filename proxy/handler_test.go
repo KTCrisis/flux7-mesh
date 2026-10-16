@@ -1807,3 +1807,94 @@ func TestTraceVerifyEndpoint(t *testing.T) {
 		t.Errorf("status = %+v", st)
 	}
 }
+
+// --- /decide identity: the body's agent field is a label, not a credential ---
+
+func decideAs(t *testing.T, h *Handler, auth, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := newLoopbackReq("POST", "/decide", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestDecideClaimedAgentWithoutTokenRejectedUnderJWT(t *testing.T) {
+	h, _ := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	rr := decideAs(t, h, "", `{"agent":"jwt-agent","tool":"test_tool","arguments":{}}`)
+	if rr.Code != 401 {
+		t.Fatalf("claimed agent with no token: status %d, want 401: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDecideAgentFieldMustMatchToken(t *testing.T) {
+	h, priv := jwtHandler(t)
+	defer h.JWTValidator.Close()
+	tok := signTestJWT(t, priv, jwt.MapClaims{"sub": "jwt-agent", "exp": time.Now().Add(time.Hour).Unix()})
+
+	rr := decideAs(t, h, "Bearer "+tok, `{"agent":"other-agent","tool":"test_tool","arguments":{}}`)
+	if rr.Code != 403 {
+		t.Fatalf("mismatched agent field: status %d, want 403", rr.Code)
+	}
+	rr = decideAs(t, h, "Bearer "+tok, `{"agent":"jwt-agent","tool":"test_tool","arguments":{}}`)
+	if rr.Code != 200 {
+		t.Fatalf("matching agent field: status %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDecideAgentFieldMustMatchSelfDeclaredHeader(t *testing.T) {
+	h, _ := setupHandler(t)
+	rr := decideAs(t, h, "Bearer agent:test-bot", `{"agent":"admin-bot","tool":"get_pet","arguments":{}}`)
+	if rr.Code != 403 {
+		t.Fatalf("header says test-bot, body says admin-bot: status %d, want 403", rr.Code)
+	}
+}
+
+func TestDecideRequireAuthIgnoresBodyAgent(t *testing.T) {
+	h, _ := setupHandler(t)
+	h.RequireAuth = true
+	rr := decideAs(t, h, "", `{"agent":"test-bot","tool":"get_pet","arguments":{}}`)
+	if rr.Code != 401 {
+		t.Fatalf("required authentication, body agent only: status %d, want 401", rr.Code)
+	}
+}
+
+func TestDecideRefusalsAreTraced(t *testing.T) {
+	h, _ := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	decideAs(t, h, "Bearer eyJhbGciOiJSUzI1NiJ9.invalid.payload", `{"tool":"test_tool","arguments":{}}`)
+	decideAs(t, h, "", `{"agent":"jwt-agent","tool":"test_tool","arguments":{}}`)
+
+	entries := h.Traces.Query("", "", 10)
+	if len(entries) != 2 {
+		t.Fatalf("%d traces for 2 refused calls, want 2", len(entries))
+	}
+	for _, e := range entries {
+		if e.Policy != "deny" || !strings.HasPrefix(e.PolicyRule, "auth:") {
+			t.Errorf("refused call traced as %s/%s, want deny/auth:*", e.Policy, e.PolicyRule)
+		}
+		if e.AgentID != "anonymous" {
+			t.Errorf("refused call traced under %q: a refused caller proved no name", e.AgentID)
+		}
+	}
+}
+
+func TestToolCallRefusalIsTraced(t *testing.T) {
+	h, _ := jwtHandler(t)
+	defer h.JWTValidator.Close()
+
+	req := newLoopbackReq("POST", "/tool/test_tool", strings.NewReader(`{"params":{}}`))
+	req.Header.Set("Authorization", "Bearer agent:legacy-bot")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	entries := h.Traces.Query("", "", 10)
+	if len(entries) != 1 || entries[0].PolicyRule != "auth:invalid_credential" {
+		t.Fatalf("refused tool call: traces %+v, want one auth:invalid_credential", entries)
+	}
+}

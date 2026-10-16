@@ -153,6 +153,13 @@ Check a new condition against `POST /decide` before trusting it.
 | `not_contains` | string or list | `command not_contains ["curl", "wget"]` |
 | `starts_with` | string or list | `file_path starts_with "/home/fluxart"` |
 | `not_starts_with` | string or list | `file_path not_starts_with ["/etc", "/usr"]` |
+| `ends_with` | string or list | `to ends_with "@acme.fr"` |
+| `not_ends_with` | string or list | `file_path not_ends_with [".env", ".pem"]` |
+
+To allow a domain, anchor it with `ends_with`: `to contains "@acme.fr"` also
+matches `drop@acme.fr.attacker.net`. Matching is case-sensitive, so
+`X@ACME.FR` does not match `ends_with "@acme.fr"` and falls through to the
+next rule, which is the safe direction for an allow.
 
 A list operand means **any of these** for the positive forms, and therefore
 **none of these** for the negated ones:

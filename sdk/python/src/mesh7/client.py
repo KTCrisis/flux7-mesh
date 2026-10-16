@@ -76,10 +76,10 @@ class AgentMesh:
         self._session.headers["Content-Type"] = "application/json"
 
     def _body(self, **fields: Any) -> dict[str, Any]:
-        """Request body. With a token, identity must come from the token alone:
-        the mesh honours an explicit ``agent`` field over the header on
-        ``/decide``, so sending it would let the label override the
-        credential. Without a token the label is the identity, so it is sent."""
+        """Request body. With a token, identity comes from the token alone and
+        the mesh refuses an ``agent`` field that names anyone else, so none is
+        sent. Without a token the label is the identity, sent in the body and
+        in the header, which must agree."""
         if self._token:
             return fields
         return {"agent": self._agent, **fields}

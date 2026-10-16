@@ -40,6 +40,14 @@ func TestContains(t *testing.T) {
 			map[string]any{"path": "/etc/passwd"}, false},
 		{"not_starts_with", "not_starts_with", config.Text("/etc", "/usr"),
 			map[string]any{"path": "/home/fluxart/x"}, true},
+		{"ends_with", "ends_with", config.Text("@acme.fr"),
+			map[string]any{"path": "client@acme.fr"}, true},
+		{"ends_with refuses a look-alike domain", "ends_with", config.Text("@acme.fr"),
+			map[string]any{"path": "drop@acme.fr.attacker.net"}, false},
+		{"not_ends_with", "not_ends_with", config.Text(".env", ".pem"),
+			map[string]any{"path": "/srv/app/main.go"}, true},
+		{"not_ends_with hit", "not_ends_with", config.Text(".env", ".pem"),
+			map[string]any{"path": "/srv/app/.env"}, false},
 	}
 
 	for _, tc := range tests {
@@ -79,7 +87,7 @@ func TestContainsSeesListArguments(t *testing.T) {
 // skipped, and evaluation ends at the default deny.
 func TestMissingFieldIsFalseBothWays(t *testing.T) {
 	params := map[string]any{"other": "x"}
-	for _, op := range []string{"contains", "not_contains", "starts_with", "not_starts_with"} {
+	for _, op := range []string{"contains", "not_contains", "starts_with", "not_starts_with", "ends_with", "not_ends_with"} {
 		if evaluateCondition(cond("command", op, config.Text("rm")), params) {
 			t.Errorf("%s on a missing field must be false", op)
 		}
