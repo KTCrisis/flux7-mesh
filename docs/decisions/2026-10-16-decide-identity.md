@@ -1,0 +1,6 @@
+# The agent field of /decide is a label, not a credential
+
+- **Problem**: `/decide` took the body's `agent` field before reading any token, so under JWT and `require_authentication` anyone could read another agent's policy and write traces in its name; refused identities left no trace; `contains "@acme.fr"` also allowed `drop@acme.fr.attacker.net` (all three found by the flux7-tests conformance bench, 16/10).
+- **Decision**: identity comes from the credential; the field is believed alone only in the local posture (no JWT, no required auth, no credential), must otherwise name the authenticated agent (403), and with no credential the call is a 401. Refused calls on `/decide` and `/tool/` are traced as `deny`, rule `auth:<reason>`, under `anonymous`. Conditions gain `ends_with` / `not_ends_with`.
+- **Why**: the local posture is self-declared either way, so nothing is lost there; elsewhere the body could override the credential. A refused caller has proved no name, so its claim stays in the error text, not in the agent column.
+- **Where**: `proxy/handler.go` (`handleDecide`, `handleToolCall`, `RecordRefused`), `policy/engine.go` (`evaluateString`), `docs/writing-policies.md`. Callers that send a header and a different body agent now get 403; the Python SDK and hook never did.
