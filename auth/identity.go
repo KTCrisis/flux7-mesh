@@ -10,6 +10,12 @@ import (
 // while legacy mode is off).
 var ErrIdentityRequired = errors.New("authentication required: present a valid JWT")
 
+// ErrJWTWithoutValidator is returned in the local posture when the bearer is
+// a JWT: with no validator nothing can check it, and taking the token text
+// as the agent's name would record a credential as an identity (and show it
+// in every trace and dashboard).
+var ErrJWTWithoutValidator = errors.New("a JWT was presented but this mesh has no JWT validator configured (auth.jwt)")
+
 // ResolveAgentID derives the agent identity from an Authorization header value.
 // It is the single source of truth for both HTTP entry points (the REST proxy
 // and the MCP Streamable HTTP transport) so the two cannot drift apart.
@@ -17,7 +23,8 @@ var ErrIdentityRequired = errors.New("authentication required: present a valid J
 // Two postures, decided by whether a validator is configured:
 //
 //   - validator == nil (no JWT): local posture. "Bearer agent:<id>" yields <id>;
-//     any other non-empty bearer is taken verbatim as the agent id. This is the
+//     a bearer shaped like a JWT is refused (nothing can check it); any other
+//     non-empty bearer is taken verbatim as the agent id. This is the
 //     unauthenticated, localhost-only posture — identity is self-declared.
 //
 //   - validator != nil (JWT configured): strict posture. Identity must come from
@@ -59,5 +66,14 @@ func ResolveIdentity(authHeader string, v *Validator, allowLegacy bool) (Identit
 	if hasAgentPrefix {
 		return Identity{AgentID: strings.TrimPrefix(raw, "agent:")}, nil
 	}
+	if looksLikeJWT(raw) {
+		return Identity{}, ErrJWTWithoutValidator
+	}
 	return Identity{AgentID: raw}, nil
+}
+
+// looksLikeJWT: three dot-separated parts, the header a base64url JSON object
+// ("eyJ" is the encoding of `{"`). Shape only; nothing is verified here.
+func looksLikeJWT(raw string) bool {
+	return strings.Count(raw, ".") == 2 && strings.HasPrefix(raw, "eyJ")
 }
