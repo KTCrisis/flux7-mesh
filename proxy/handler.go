@@ -224,20 +224,22 @@ func subtleConstEq(a, b string) bool {
 
 func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	toolName := strings.TrimPrefix(r.URL.Path, "/tool/")
-	ident, jwtErr := h.extractIdentity(r)
-	if jwtErr != nil {
-		writeJSON(w, 401, map[string]string{"error": jwtErr.Error()})
-		return
-	}
-	agentID, userID := ident.AgentID, ident.UserID
-	if h.RequireAuth && agentID == "anonymous" {
-		writeJSON(w, 401, map[string]string{"error": "authentication required"})
-		return
-	}
 	tc := trace.NewContext(r.Header.Get("Traceparent"), r.Header.Get("X-Trace-Id"))
 	traceID := tc.TraceID
 	sessionID := extractSessionID(r)
 	start := time.Now()
+	ident, jwtErr := h.extractIdentity(r)
+	if jwtErr != nil {
+		h.RecordRefused(tc, sessionID, toolName, nil, "auth:invalid_credential", jwtErr.Error(), 401, start)
+		writeJSON(w, 401, map[string]string{"error": jwtErr.Error(), "trace_id": traceID})
+		return
+	}
+	agentID, userID := ident.AgentID, ident.UserID
+	if h.RequireAuth && agentID == "anonymous" {
+		h.RecordRefused(tc, sessionID, toolName, nil, "auth:required", "authentication required", 401, start)
+		writeJSON(w, 401, map[string]string{"error": "authentication required", "trace_id": traceID})
+		return
+	}
 
 	// 1. Parse request body
 	var req ToolCallRequest
@@ -576,20 +578,6 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := req.Agent
-	var userID string
-	if agentID == "" {
-		ident, jwtErr := h.extractIdentity(r)
-		agentID, userID = ident.AgentID, ident.UserID
-		if jwtErr != nil {
-			writeJSON(w, 401, map[string]any{"error": jwtErr.Error()})
-			return
-		}
-	}
-	if h.RequireAuth && agentID == "anonymous" {
-		writeJSON(w, 401, map[string]any{"error": "authentication required"})
-		return
-	}
 	toolName := req.Tool
 	if toolName == "" {
 		writeJSON(w, 400, map[string]any{"error": "tool field required"})
@@ -600,6 +588,41 @@ func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	traceID := tc.TraceID
 	sessionID := extractSessionID(r)
 	start := time.Now()
+
+	// Identity comes from the credential. The body's "agent" field is only a
+	// label: it is believed alone in the local posture (no JWT, no required
+	// authentication, no credential sent), where the header would be just as
+	// self-declared; anywhere else it must name the authenticated agent, or a
+	// caller could read another agent's policy and write traces in its name.
+	ident, jwtErr := h.extractIdentity(r)
+	if jwtErr != nil {
+		h.RecordRefused(tc, sessionID, toolName, req.Arguments, "auth:invalid_credential", jwtErr.Error(), 401, start)
+		writeJSON(w, 401, map[string]any{"error": jwtErr.Error(), "trace_id": traceID})
+		return
+	}
+	agentID, userID := ident.AgentID, ident.UserID
+	if req.Agent != "" && req.Agent != agentID {
+		local := h.JWTValidator == nil && !h.RequireAuth && agentID == "anonymous"
+		if !local && agentID == "anonymous" {
+			// No credential at all: the caller has to authenticate, which
+			// is a 401, not a mismatch.
+			h.RecordRefused(tc, sessionID, toolName, req.Arguments, "auth:required", "authentication required", 401, start)
+			writeJSON(w, 401, map[string]any{"error": "authentication required", "trace_id": traceID})
+			return
+		}
+		if !local {
+			msg := fmt.Sprintf("agent field %q does not match the authenticated agent %q", req.Agent, agentID)
+			h.RecordRefused(tc, sessionID, toolName, req.Arguments, "auth:agent_mismatch", msg, 403, start)
+			writeJSON(w, 403, map[string]any{"error": msg, "trace_id": traceID})
+			return
+		}
+		agentID = req.Agent
+	}
+	if h.RequireAuth && agentID == "anonymous" {
+		h.RecordRefused(tc, sessionID, toolName, req.Arguments, "auth:required", "authentication required", 401, start)
+		writeJSON(w, 401, map[string]any{"error": "authentication required", "trace_id": traceID})
+		return
+	}
 
 	if hl := h.HaltFor(agentID, sessionID); hl != nil {
 		h.RecordHalted(hl, tc, sessionID, agentID, userID, toolName, req.Arguments, start)
@@ -1067,6 +1090,22 @@ func extractSessionID(r *http.Request) string {
 // If JWTValidator is configured, Bearer tokens are validated as JWT.
 func (h *Handler) extractIdentity(r *http.Request) (auth.Identity, error) {
 	return auth.ResolveIdentity(r.Header.Get("Authorization"), h.JWTValidator, h.AllowLegacyAgent)
+}
+
+// RecordRefused traces a call refused before any policy ran, for want of a
+// valid identity. The audit needs to know that someone tried; the agent is
+// recorded as anonymous, since a refused caller has proved no name, and what
+// it claimed stays in the error text.
+func (h *Handler) RecordRefused(tc trace.Context, sessionID, tool string, params map[string]any, rule, reason string, status int, start time.Time) {
+	h.Traces.Record(trace.Entry{
+		TraceID: tc.TraceID, SpanID: tc.SpanID, ParentSpanID: tc.ParentSpanID,
+		SessionID: sessionID, AgentID: "anonymous",
+		Tool: tool, Params: params,
+		Policy: "deny", PolicyRule: rule,
+		StatusCode: status,
+		LatencyMs:  time.Since(start).Milliseconds(),
+		Error:      reason,
+	})
 }
 
 // extractAgentID is extractIdentity for callers that only need the agent.

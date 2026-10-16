@@ -201,7 +201,7 @@ func evaluateCondition(cond *config.Condition, params map[string]any) bool {
 	// the alternative would be to silently ignore every tool that takes argv
 	// rather than a command line.
 	switch cond.Operator {
-	case "contains", "not_contains", "starts_with", "not_starts_with":
+	case "contains", "not_contains", "starts_with", "not_starts_with", "ends_with", "not_ends_with":
 		return evaluateString(cond, fmt.Sprintf("%v", val))
 	}
 
@@ -272,6 +272,10 @@ func evaluateString(cond *config.Condition, haystack string) bool {
 		return anyOf(needles, func(n string) bool { return strings.HasPrefix(haystack, n) })
 	case "not_starts_with":
 		return !anyOf(needles, func(n string) bool { return strings.HasPrefix(haystack, n) })
+	case "ends_with":
+		return anyOf(needles, func(n string) bool { return strings.HasSuffix(haystack, n) })
+	case "not_ends_with":
+		return !anyOf(needles, func(n string) bool { return strings.HasSuffix(haystack, n) })
 	}
 	return false
 }
