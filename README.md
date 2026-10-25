@@ -11,7 +11,7 @@
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 
-**A governance proxy between AI agents and their tools.** Policy, human approval and signed traces on every tool call, without changing agent code.
+**A governance proxy between AI agents and their tools.** Policy, human approval and hash-chained traces on every tool call, without changing agent code.
 
 One Go binary, one YAML file, fail closed. Works with Claude Code, Cursor, Anthropic Managed Agents, the Agent SDK, LangChain, or anything that calls tools over MCP, HTTP or a CLI.
 
@@ -28,7 +28,7 @@ Full documentation: **[docs.flux7.art/mesh7](https://docs.flux7.art/mesh7/)**
 | **Tool catalogue** | Each tool classified (named or generic, read or write) from what it declares; a draft policy from `discover`; per-agent decisions; one tool's action changed from the control plane. Opt-in: pin upstream catalogues against silent changes, hide what can only be denied. [Tool classification](https://docs.flux7.art/mesh7/tool-classification/) |
 | **Identity** | JWT from your IdP, including the human an agent acts for. [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/) |
 | **Delegation** | Past decisions auto-approve through [flux7-memory](https://github.com/KTCrisis/flux7-memory); an L1 supervisor resolves the rest through [flux7-supervisor](https://github.com/KTCrisis/flux7-supervisor). [Memory integration](https://docs.flux7.art/mesh7/mem7-auto-approve/) |
-| **Provenance** | Every call to an MCP upstream carries its trace in `_meta`, and the authenticated agent for upstreams that opt in (`forward_identity`): mem7 signs, chains and scopes memories with them. `GET /traces?trace=<id>` follows a memory back to its call. [mem7 provenance](https://docs.flux7.art/mem7/provenance-scopes/) |
+| **Provenance** | Every call to an MCP upstream carries its trace in `_meta`, and the authenticated agent for upstreams that opt in (`forward_identity`): mem7 chains (HMAC when keyed) and scopes memories with them. `GET /traces?trace=<id>` follows a memory back to its call. [mem7 provenance](https://docs.flux7.art/mem7/provenance-scopes/) |
 
 ## How it sits
 
