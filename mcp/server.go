@@ -294,13 +294,19 @@ func (s *Server) handleInitialize() map[string]any {
 	}
 }
 
-// deniedOnly reports whether every path through the policy ends in deny for
+// deniedOnly is alwaysDenied when hide_denied is on: tools/list then leaves
+// out what this agent can never call.
+func (s *Server) deniedOnly(t *registry.Tool) bool {
+	return s.HideDenied && s.alwaysDenied(t)
+}
+
+// alwaysDenied reports whether every path through the policy ends in deny for
 // this agent and tool: the fallthrough action and every conditional rule
 // before it, each tightened by the dispatcher floor. Grants lift
 // human_approval only, never deny, so such a tool can never be called and
 // hiding it from the catalogue loses nothing.
-func (s *Server) deniedOnly(t *registry.Tool) bool {
-	if !s.HideDenied || s.Policy == nil {
+func (s *Server) alwaysDenied(t *registry.Tool) bool {
+	if s.Policy == nil {
 		return false
 	}
 	floor := s.floor(t)
@@ -1037,7 +1043,14 @@ func (s *Server) handleGrantList() (any, *rpcError) {
 			},
 		}, nil
 	}
-	grants := s.Handler.Grants.List()
+	// An agent sees the grants that apply to it; which other agent holds a
+	// grant right now is the operator's business (supervisors see all).
+	var grants []*grant.Grant
+	for _, g := range s.Handler.Grants.List() {
+		if s.isSupervisorAgent() || match.Glob(g.Agent, s.AgentID) {
+			grants = append(grants, g)
+		}
+	}
 	if len(grants) == 0 {
 		return map[string]any{
 			"content": []map[string]any{
@@ -1081,19 +1094,8 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 	sourceFilter, _ := args["source"].(string)
 	sourceFilter = strings.ToLower(sourceFilter)
 
-	type catalogEntry struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Action      string `json:"action"`
-	}
-	type catalogGroup struct {
-		Source  string         `json:"source"`
-		Runtime string         `json:"runtime,omitempty"`
-		Count   int            `json:"count"`
-		Tools   []catalogEntry `json:"tools"`
-	}
-
 	groups := make(map[string]*catalogGroup)
+	supervisor := s.isSupervisorAgent()
 
 	// Registry tools
 	for _, t := range s.Registry.All() {
@@ -1117,6 +1119,12 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 		if sourceFilter != "" && strings.ToLower(groupKey) != sourceFilter {
 			continue
 		}
+		// The catalogue maps what this agent can reach. A tool it can never
+		// call stays out, whatever hide_denied says: listing it would hand
+		// an injected agent the map of what is kept from it.
+		if !supervisor && s.alwaysDenied(t) {
+			continue
+		}
 
 		action := s.applyFloors(s.Policy.Evaluate(s.AgentID, t.Name, nil), t).Action
 
@@ -1135,14 +1143,26 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 	// Virtual tools (mesh group)
 	if sourceFilter == "" || sourceFilter == "mesh" {
 		g := &catalogGroup{Source: "virtual", Tools: []catalogEntry{
-			{Name: "approval.resolve", Description: "Approve or deny a pending approval request", Action: "allow"},
-			{Name: "approval.pending", Description: "List all pending approval requests", Action: "allow"},
-			{Name: "grant.create", Description: "Create a temporal grant", Action: "allow"},
-			{Name: "grant.list", Description: "List all active temporal grants", Action: "allow"},
-			{Name: "grant.revoke", Description: "Revoke an active temporal grant", Action: "allow"},
+			{Name: "grant.list", Description: "List the active temporal grants that apply to this agent", Action: "allow"},
 			{Name: "mesh.catalog", Description: "This tool", Action: "allow"},
 		}}
+		// Operator-only tools are listed only to those who may call them.
+		if supervisor {
+			g.Tools = append(g.Tools,
+				catalogEntry{Name: "approval.resolve", Description: "Approve or deny a pending approval request", Action: "allow"},
+				catalogEntry{Name: "approval.pending", Description: "List all pending approval requests", Action: "allow"},
+				catalogEntry{Name: "grant.create", Description: "Create a temporal grant", Action: "allow"},
+				catalogEntry{Name: "grant.revoke", Description: "Revoke an active temporal grant", Action: "allow"},
+			)
+		}
 		groups["mesh"] = g
+	}
+
+	// Runtime details (command lines with their arguments, upstream URLs,
+	// binary paths) describe the deployment, not what an agent may do:
+	// paths to credential files, internal hosts. Supervisors only.
+	if !supervisor {
+		return catalogResult(groups), nil
 	}
 
 	// Enrich MCP groups with runtime info from manager
@@ -1173,38 +1193,40 @@ func (s *Server) handleCatalog(args map[string]any) (any, *rpcError) {
 		}
 	}
 
-	// Sort tools within each group, compute counts
+	return catalogResult(groups), nil
+}
+
+type catalogEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Action      string `json:"action"`
+}
+
+type catalogGroup struct {
+	Source  string         `json:"source"`
+	Runtime string         `json:"runtime,omitempty"`
+	Count   int            `json:"count"`
+	Tools   []catalogEntry `json:"tools"`
+}
+
+// catalogResult sorts the groups and their tools and renders the catalogue.
+func catalogResult(groups map[string]*catalogGroup) map[string]any {
 	totalTools := 0
 	for _, g := range groups {
 		sort.Slice(g.Tools, func(i, j int) bool { return g.Tools[i].Name < g.Tools[j].Name })
 		g.Count = len(g.Tools)
 		totalTools += g.Count
 	}
-
-	// Sort group keys
-	keys := make([]string, 0, len(groups))
-	for k := range groups {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// Build ordered output
-	orderedGroups := make(map[string]*catalogGroup, len(groups))
-	for _, k := range keys {
-		orderedGroups[k] = groups[k]
-	}
-
 	result := map[string]any{
 		"summary": fmt.Sprintf("%d tools across %d sources", totalTools, len(groups)),
-		"groups":  orderedGroups,
+		"groups":  groups,
 	}
-
 	out, _ := json.MarshalIndent(result, "", "  ")
 	return map[string]any{
 		"content": []map[string]any{
 			{"type": "text", "text": string(out)},
 		},
-	}, nil
+	}
 }
 
 func (s *Server) writeResponse(w io.Writer, resp rpcResponse) {
