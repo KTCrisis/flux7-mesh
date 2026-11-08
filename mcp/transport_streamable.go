@@ -10,8 +10,12 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// setModern switches the transport to the 2026-07-28 era (see era.go).
+func (t *streamableTransport) setModern() { t.modern.Store(true) }
 
 // streamableTransport speaks the MCP Streamable HTTP transport to an upstream
 // server: every JSON-RPC request is a POST to a single endpoint.
@@ -40,6 +44,10 @@ type streamableTransport struct {
 	// simply never set it.
 	sessionID string
 	sessionMu sync.RWMutex
+
+	// modern is set once the server is known to speak the 2026-07-28 era:
+	// every request then carries the headers derived from its body (era.go).
+	modern atomic.Bool
 
 	incoming  chan []byte
 	closeOnce sync.Once
@@ -105,6 +113,11 @@ func (t *streamableTransport) WriteRequest(data []byte) error {
 		req.Header.Set("Mcp-Session-Id", t.sessionID)
 	}
 	t.sessionMu.RUnlock()
+	if t.modern.Load() {
+		for k, v := range modernHeaders(data) {
+			req.Header.Set(k, v)
+		}
+	}
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -123,7 +136,7 @@ func (t *streamableTransport) WriteRequest(data []byte) error {
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
-		return fmt.Errorf("streamable HTTP POST: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return &httpStatusError{Status: resp.StatusCode, Body: body}
 	}
 
 	// 202 Accepted with no body is the legal answer to a notification.
