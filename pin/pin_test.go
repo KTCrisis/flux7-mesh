@@ -90,3 +90,29 @@ func TestNilStoreIsInert(t *testing.T) {
 		t.Error("a nil store must impose nothing")
 	}
 }
+
+// Accepting a tool that is not loaded fails and pins nothing.
+func TestAcceptUnknownToolPinsNothing(t *testing.T) {
+	s, _ := NewStore(nil)
+	s.Observe("srv", []*registry.Tool{tool("read", "Read a file")})
+	if _, err := s.Accept([]string{"srv.ghost"}); err == nil {
+		t.Fatal("accepting an unloaded tool succeeded")
+	}
+	if s.Floor("srv.ghost") != "" {
+		t.Error("an unloaded tool got a floor")
+	}
+}
+
+// A pin that cannot be written stops the observation with an error instead
+// of trusting the catalogue in memory only.
+func TestPinWriteFailureIsReported(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := NewStore(db)
+	db.Close()
+	if err := s.Observe("srv", []*registry.Tool{tool("read", "Read a file")}); err == nil {
+		t.Fatal("first-sight pin on a closed database reported no error")
+	}
+}
