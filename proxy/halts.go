@@ -71,6 +71,11 @@ func (h *Handler) handleCreateHalt(w http.ResponseWriter, r *http.Request) {
 	}
 	by := operator(req.By, r)
 	hl, created, err := h.Halts.Start(halt.Scope(req.Scope), req.Target, req.Reason, by)
+	var warning string
+	if errors.Is(err, halt.ErrNotShared) {
+		// Engaged here, not yet shared: carry on and say so.
+		warning, err = err.Error(), nil
+	}
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
@@ -94,9 +99,13 @@ func (h *Handler) handleCreateHalt(w http.ResponseWriter, r *http.Request) {
 		},
 		Policy: "allow", PolicyRule: "control-plane", StatusCode: 201, Timestamp: time.Now(),
 	})
-	writeJSON(w, 201, map[string]any{
+	resp := map[string]any{
 		"halt": hl, "revoked_grants": len(revoked), "denied_approvals": len(denied),
-	})
+	}
+	if warning != "" {
+		resp["warning"] = warning
+	}
+	writeJSON(w, 201, resp)
 }
 
 // handleResumeHalt serves POST /halts/{id}/resume: the stop is lifted and the
