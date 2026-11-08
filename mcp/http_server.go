@@ -85,6 +85,14 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Headers that disagree with the body are refused before anything else
+	// (era_server.go): a gateway may have routed on them.
+	if why := headerMismatch(r.Header, req); why != "" {
+		writeJSONRPCErrorData(w, req.ID, errHeaderMismatch, "Bad Request: the request headers and body disagree: "+why,
+			map[string]any{"mismatch": why}, http.StatusBadRequest)
+		return
+	}
+
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	ident, jwtErr := h.extractIdentity(r)
 	if jwtErr != nil {
@@ -92,6 +100,24 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agentID := ident.AgentID
+
+	// A modern request stands alone: identity from this request's
+	// credential, no session to open, find or hand back.
+	if requestVersion(req.Params) != "" {
+		if h.RequireAuth && agentID == "anonymous" {
+			writeJSONRPCError(w, req.ID, -32600, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		srv := h.newServer(ident, sessionLabel(r.Header))
+		resp := srv.HandleRequestWith(req, requestTraceContext(r, req))
+		if resp.JSONRPC == "" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
 
 	isInit := req.Method == "initialize"
 
@@ -133,8 +159,7 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	srv := h.getOrCreateSession(sessionID, ident)
-	tc := trace.NewContext(r.Header.Get("Traceparent"), r.Header.Get("X-Trace-Id"))
-	resp := srv.HandleRequestWith(req, tc)
+	resp := srv.HandleRequestWith(req, requestTraceContext(r, req))
 
 	// Notifications — no response body.
 	if resp.JSONRPC == "" {
@@ -202,26 +227,33 @@ func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity) 
 
 	// New sessions always get a server-minted, unguessable ID — a
 	// client-supplied ID is never adopted (callers pass "" on initialize).
-	srv := &Server{
+	srv := h.newServer(ident, trace.NewID())
+	h.sessions[srv.SessionID] = srv
+
+	slog.Info("MCP HTTP session created", "session_id", srv.SessionID, "agent", agentID)
+	return srv
+}
+
+// newServer builds the Server that handles a caller's requests: one per
+// legacy session, or one per modern request, whose session is only the
+// client's X-Session-Id label, if any (see era_server.go).
+func (h *HTTPHandler) newServer(ident auth.Identity, sessionID string) *Server {
+	return &Server{
 		Registry:         h.Registry,
 		Policy:           h.Policy,
 		Traces:           h.Traces,
 		Approvals:        h.Approvals,
 		Handler:          h.Handler,
 		MCPManager:       h.MCPManager,
-		AgentID:          agentID,
+		AgentID:          ident.AgentID,
 		UserID:           ident.UserID,
-		SessionID:        trace.NewID(),
+		SessionID:        sessionID,
 		SupervisorMode:   h.SupervisorMode,
 		SupervisorAgents: h.SupervisorAgents,
 		ApprovalChannel:  h.ApprovalChannel,
 		ApprovalWait:     h.ApprovalWait,
 		HideDenied:       h.HideDenied,
 	}
-	h.sessions[srv.SessionID] = srv
-
-	slog.Info("MCP HTTP session created", "session_id", srv.SessionID, "agent", agentID)
-	return srv
 }
 
 func (h *HTTPHandler) extractIdentity(r *http.Request) (auth.Identity, error) {
@@ -229,11 +261,15 @@ func (h *HTTPHandler) extractIdentity(r *http.Request) (auth.Identity, error) {
 }
 
 func writeJSONRPCError(w http.ResponseWriter, id any, code int, msg string, httpStatus int) {
+	writeJSONRPCErrorData(w, id, code, msg, nil, httpStatus)
+}
+
+func writeJSONRPCErrorData(w http.ResponseWriter, id any, code int, msg string, data any, httpStatus int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
 	json.NewEncoder(w).Encode(rpcResponse{
 		JSONRPC: "2.0",
 		ID:      id,
-		Error:   &rpcError{Code: code, Message: msg},
+		Error:   &rpcError{Code: code, Message: msg, Data: data},
 	})
 }
