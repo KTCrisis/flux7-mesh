@@ -603,18 +603,9 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 					}
 				})
 				if err != nil {
-					return map[string]any{
-						"content": []map[string]any{
-							{"type": "text", "text": fmt.Sprintf("Backend error: %s", err.Error())},
-						},
-					}, nil
+					return errorResult(fmt.Sprintf("Backend error: %s", err.Error())), nil
 				}
-				resultJSON, _ := json.MarshalIndent(result, "", "  ")
-				return map[string]any{
-					"content": []map[string]any{
-						{"type": "text", "text": string(resultJSON)},
-					},
-				}, nil
+				return toolResult(tool, result), nil
 			}
 			// Denied via TTY
 			s.Traces.Update(entry.TraceID, func(e *trace.Entry) {
@@ -774,27 +765,10 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 	s.Traces.Record(entry)
 
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": fmt.Sprintf("Backend error: %s", err.Error())},
-			},
-		}, nil
+		return errorResult(fmt.Sprintf("Backend error: %s", err.Error())), nil
 	}
 
-	// Serialize result as text
-	resultJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": fmt.Sprintf("Failed to serialize result: %s", err.Error())},
-			},
-		}, nil
-	}
-	return map[string]any{
-		"content": []map[string]any{
-			{"type": "text", "text": string(resultJSON)},
-		},
-	}, nil
+	return toolResult(tool, result), nil
 }
 
 func (s *Server) handleApprovalResolve(args map[string]any) (any, *rpcError) {
@@ -875,19 +849,10 @@ func (s *Server) handleApprovalResolve(args map[string]any) (any, *rpcError) {
 	}
 
 	if err != nil {
-		return map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": fmt.Sprintf("Approved but backend error: %s", err.Error())},
-			},
-		}, nil
+		return errorResult(fmt.Sprintf("Approved but backend error: %s", err.Error())), nil
 	}
 
-	resultJSON, _ := json.MarshalIndent(result, "", "  ")
-	return map[string]any{
-		"content": []map[string]any{
-			{"type": "text", "text": string(resultJSON)},
-		},
-	}, nil
+	return toolResult(tool, result), nil
 }
 
 // handleResolution processes a supervisor's resolution — replays the tool call if approved.
@@ -927,18 +892,9 @@ func (s *Server) handleResolution(
 			}
 		})
 		if err != nil {
-			return map[string]any{
-				"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprintf("Approved by supervisor but backend error: %s", err.Error())},
-				},
-			}, nil
+			return errorResult(fmt.Sprintf("Approved by supervisor but backend error: %s", err.Error())), nil
 		}
-		resultJSON, _ := json.MarshalIndent(result, "", "  ")
-		return map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": string(resultJSON)},
-			},
-		}, nil
+		return toolResult(tool, result), nil
 
 	case approval.StatusDenied:
 		return map[string]any{
