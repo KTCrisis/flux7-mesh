@@ -113,3 +113,54 @@ func TestHaltIsSharedAcrossProcesses(t *testing.T) {
 		t.Fatal("a resumed halt must not come back after a restart")
 	}
 }
+
+// A database that fails after a halt was started must not lift it: the store
+// keeps the last known halts rather than failing open.
+func TestHaltSurvivesDatabaseFailure(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := NewStore(db)
+	h, _, err := s.Start(ScopeAgent, "claude", "incident", "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db.Close()               // the database goes away
+	s.lastSync = time.Time{} // and the next Match tries to reload from it
+	if got := s.Match("claude", ""); got == nil || got.ID != h.ID {
+		t.Fatalf("halt lifted by a database failure, got %+v", got)
+	}
+}
+
+// Resume needs the full ID or a prefix of at least 4 characters: a short
+// prefix could lift the wrong stop.
+func TestResumeRefusesShortPrefix(t *testing.T) {
+	s, _ := NewStore(nil)
+	h, _, _ := s.Start(ScopeAll, "", "", "op")
+	if _, err := s.Resume(h.ID[:3], "op"); err != ErrNotFound {
+		t.Errorf("3-character prefix: err = %v, want ErrNotFound", err)
+	}
+	if len(s.Active()) != 1 {
+		t.Fatal("halt lifted by a short prefix")
+	}
+	if _, err := s.Resume("not-an-id", "op"); err != ErrNotFound {
+		t.Errorf("unknown ID: err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.Resume(h.ID[:4], "op"); err != nil {
+		t.Errorf("4-character prefix: %v", err)
+	}
+}
+
+// Starting a halt with an unknown scope is refused, so no stop is recorded
+// that would cover nothing.
+func TestStartRefusesUnknownScope(t *testing.T) {
+	s, _ := NewStore(nil)
+	if _, _, err := s.Start(Scope("tenant"), "acme", "", "op"); err == nil {
+		t.Fatal("unknown scope accepted")
+	}
+	if len(s.Active()) != 0 {
+		t.Fatal("a halt with an unknown scope was recorded")
+	}
+}

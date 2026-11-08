@@ -27,6 +27,14 @@ Full documentation: **[docs.flux7.art/mesh7](https://docs.flux7.art/mesh7/)**
 | **Traces** | Every call and decision, grouped by session, HMAC hash-chained and verifiable, exported over OTLP. [Trace integrity](https://docs.flux7.art/mesh7/trace-integrity/) · [Observability](https://docs.flux7.art/mesh7/otel/) |
 | **Tool catalogue** | Each tool classified (named or generic, read or write) from what it declares; a draft policy from `discover`; per-agent decisions; one tool's action changed from the control plane. Opt-in: pin upstream catalogues against silent changes, hide what can only be denied. [Tool classification](https://docs.flux7.art/mesh7/tool-classification/) |
 | **Identity** | JWT from your IdP, including the human an agent acts for. [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/) |
+| **Protocol** | MCP over stdio and Streamable HTTP, both the 2025 handshake era and 2026-07-28, towards clients and upstream servers alike; upstream results pass through unchanged. |
+
+### Extensions
+
+Off unless configured; the core above does not depend on them.
+
+| | |
+|---|---|
 | **Delegation** | Past decisions auto-approve through [flux7-memory](https://github.com/KTCrisis/flux7-memory); an L1 supervisor resolves the rest through [flux7-supervisor](https://github.com/KTCrisis/flux7-supervisor). [Memory integration](https://docs.flux7.art/mesh7/mem7-auto-approve/) |
 | **Provenance** | Every call to an MCP upstream carries its trace in `_meta`, and the authenticated agent for upstreams that opt in (`forward_identity`): mem7 chains (HMAC when keyed) and scopes memories with them. `GET /traces?trace=<id>` follows a memory back to its call. [mem7 provenance](https://docs.flux7.art/mem7/provenance-scopes/) |
 
