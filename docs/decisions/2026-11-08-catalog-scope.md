@@ -1,0 +1,6 @@
+# mesh.catalog and grant.list scoped to the calling agent
+
+- **Problem**: both virtual tools run before policy and answered every authenticated agent in full: every registry tool (even those it can never call, ignoring `hide_denied`), each upstream's command line with its arguments (credential file paths), URLs and binary paths, and every agent's active grants. Nothing an agent could act on, but a map for an injected agent. Open since the 2026-09-11 session fix, left as a design choice.
+- **Decision**: keep both tools open (no config change) and scope what they return. For a non-supervisor agent the catalogue leaves out tools it can never call and all runtime details, and lists only the virtual tools it may call; `grant.list` shows only the grants whose agent pattern matches it. Supervisor agents keep the full view.
+- **Why**: closes the three leaks without breaking a deployment; placing them under policy (option 1) would have required two new rules everywhere to keep today's behaviour.
+- **Where**: `mcp/server.go` (`handleCatalog`, `catalogResult`, `alwaysDenied`, `handleGrantList`), tests in `mcp/catalog_scope_test.go`, plugin skill `plugin/skills/catalog/SKILL.md`. The operator's full view stays `GET /tools` (admin) and the console.
