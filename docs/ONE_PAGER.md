@@ -107,7 +107,7 @@ Auto-approval is skipped whenever the arguments carry a prompt-injection pattern
 - **CLI execution never touches a shell.** `exec.Command` directly, shell metacharacters rejected per argument, flag allowlist, context timeout, 1 MB output cap, and an environment rebuilt from scratch so a wrapped binary never inherits the mesh's secrets.
 - **SSRF checked at dial time.** The host is resolved on the actual connection, every resolved address is inspected, and the vetted IP is dialled directly. No TOCTOU window for DNS rebinding, and cloud metadata endpoints are blocked.
 - **Data plane and control plane are separate.** Tool calls, `/decide`, `/mcp` and `/health` are never admin-gated. Traces, approvals, grants, policies and metrics require a bearer token, or are restricted to loopback when none is set, compared in constant time.
-- **Loop detection.** The same tool with the same arguments three times in ten seconds is refused. An agent stuck in a retry loop is an agent-specific failure mode that no API gateway models.
+- **Loop detection.** A fourth call of the same tool with the same arguments within ten seconds is refused. An agent stuck in a retry loop is an agent-specific failure mode that no API gateway models.
 
 ## Current state (August 2026, v0.15.1)
 
