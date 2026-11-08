@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -26,6 +27,14 @@ func TestDaemonLockSeenByClient(t *testing.T) {
 	}
 	if !lockHeld(path) {
 		t.Fatal("a client probe released the daemon's lock")
+	}
+	// The lock must survive garbage collection: an unreferenced *os.File is
+	// closed by its finalizer, which releases the flock.
+	runtime.GC()
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+	if !lockHeld(path) {
+		t.Fatal("the daemon's lock was released by a garbage collection")
 	}
 	if held, _ := lockFile(path); held {
 		t.Fatal("a second daemon took a held lock")

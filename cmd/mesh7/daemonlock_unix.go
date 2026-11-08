@@ -8,6 +8,12 @@ import (
 	"syscall"
 )
 
+// heldLock keeps the locked file reachable. An *os.File nobody references is
+// closed by its finalizer at the next garbage collection, and closing the
+// descriptor releases the flock: without this variable the daemon lost its
+// lock a few minutes after starting.
+var heldLock *os.File
+
 // lockFile takes an exclusive advisory lock on path and keeps the file open,
 // so the lock lasts as long as the process. It reports false, nil when
 // another process holds it.
@@ -25,6 +31,7 @@ func lockFile(path string) (bool, error) {
 	}
 	// Deliberately never closed: the kernel releases the lock when the
 	// process exits, however it exits.
+	heldLock = f
 	return true, nil
 }
 
