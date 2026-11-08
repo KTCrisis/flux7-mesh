@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,6 +56,11 @@ type MCPClient struct {
 	status    string // "connecting", "ready", "error", "closed"
 	lastError string
 	done      *doneChan // closed when readLoop exits or client is closed
+
+	// modern is set when the upstream speaks only the 2026-07-28 era: every
+	// request then carries the per-request envelope (era.go). Decided again
+	// on each connect, since a server can be upgraded between two.
+	modern atomic.Bool
 }
 
 // NewStdioClient creates an MCP client that communicates via stdin/stdout of a subprocess.
@@ -124,17 +130,22 @@ func (c *MCPClient) connectInternal(ctx context.Context) error {
 	// Start read loop
 	go c.readLoop()
 
-	// Initialize handshake
+	// Initialize handshake. A server that speaks only the 2026-07-28 era
+	// refuses it with -32022 and names the versions it accepts (era.go).
+	c.modern.Store(false)
 	initResp, err := c.send(ctx, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": legacyProtocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo": map[string]any{
-			"name":    "flux7-mesh",
-			"version": "0.1.0",
-		},
+		"clientInfo":      clientInfo,
 	})
+	if offersModern(err, initResp) {
+		return c.connectModern(ctx)
+	}
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
+	}
+	if initResp.Error != nil {
+		return fmt.Errorf("initialize: MCP error %d: %s", initResp.Error.Code, initResp.Error.Message)
 	}
 	slog.Info("MCP client: initialized", "server", c.Name, "result", initResp.Result)
 
@@ -146,10 +157,44 @@ func (c *MCPClient) connectInternal(ctx context.Context) error {
 		return fmt.Errorf("send initialized notification: %w", err)
 	}
 
-	// Discover tools
+	return c.discoverTools(ctx)
+}
+
+// connectModern finishes a connection in the 2026-07-28 era: no initialize,
+// no session, no initialized notification. server/discover confirms the era
+// before tools are listed.
+func (c *MCPClient) connectModern(ctx context.Context) error {
+	c.modern.Store(true)
+	if mt, ok := c.tr.(interface{ setModern() }); ok {
+		mt.setModern()
+	}
+	resp, err := c.send(ctx, "server/discover", map[string]any{})
+	if err != nil {
+		return fmt.Errorf("server/discover: %w", err)
+	}
+	if resp.Error != nil {
+		return fmt.Errorf("server/discover: MCP error %d: %s", resp.Error.Code, resp.Error.Message)
+	}
+	var disc struct {
+		SupportedVersions []string `json:"supportedVersions"`
+	}
+	data, _ := json.Marshal(resp.Result)
+	_ = json.Unmarshal(data, &disc)
+	if !slices.Contains(disc.SupportedVersions, modernProtocolVersion) {
+		return fmt.Errorf("server/discover: %s not among supported versions %v", modernProtocolVersion, disc.SupportedVersions)
+	}
+	slog.Info("MCP client: modern protocol", "server", c.Name, "version", modernProtocolVersion)
+	return c.discoverTools(ctx)
+}
+
+// discoverTools lists the upstream's tools and marks the client ready.
+func (c *MCPClient) discoverTools(ctx context.Context) error {
 	toolsResp, err := c.send(ctx, "tools/list", nil)
 	if err != nil {
 		return fmt.Errorf("tools/list: %w", err)
+	}
+	if toolsResp.Error != nil {
+		return fmt.Errorf("tools/list: MCP error %d: %s", toolsResp.Error.Code, toolsResp.Error.Message)
 	}
 
 	if err := c.parseTools(toolsResp.Result); err != nil {
@@ -193,6 +238,9 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, arguments map[str
 	if resp.Error != nil {
 		return nil, fmt.Errorf("MCP error %d: %s", resp.Error.Code, resp.Error.Message)
 	}
+	if c.modern.Load() {
+		return modernResult(resp.Result)
+	}
 	return resp.Result, nil
 }
 
@@ -219,6 +267,9 @@ func (c *MCPClient) send(ctx context.Context, method string, params map[string]a
 		c.pendingMu.Unlock()
 	}()
 
+	if c.modern.Load() {
+		params = withEnvelope(params)
+	}
 	req := rpcRequest{
 		JSONRPC: "2.0",
 		ID:      id,
