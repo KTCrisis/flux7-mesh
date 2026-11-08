@@ -191,7 +191,30 @@ func (s *Server) HandleRequestWith(req rpcRequest, tc trace.Context) rpcResponse
 	resp.JSONRPC = "2.0"
 	resp.ID = req.ID
 
+	// On stdio there are no headers: the trace context, if any, travels in
+	// params._meta (SEP-414).
+	if tc.TraceID == "" {
+		if tp := metaTraceparent(req.Params); tp != "" {
+			tc = trace.NewContext(tp, "")
+		}
+	}
+
+	// A modern request (version in params._meta, see era_server.go) must name
+	// a version this server speaks, or learn which ones it does.
+	version := requestVersion(req.Params)
+	modern := version != ""
+	if modern && version != modernProtocolVersion {
+		resp.Error = &rpcError{
+			Code:    errUnsupportedProtocolVersion,
+			Message: "Unsupported protocol version: " + version,
+			Data:    map[string]any{"supported": exportVersions, "requested": version},
+		}
+		return resp
+	}
+
 	switch req.Method {
+	case "server/discover":
+		resp.Result = s.handleDiscover()
 	case "initialize":
 		if s.SessionID == "" {
 			s.SessionID = trace.NewID()
@@ -201,10 +224,23 @@ func (s *Server) HandleRequestWith(req rpcRequest, tc trace.Context) rpcResponse
 	case "notifications/initialized":
 		return rpcResponse{}
 	case "tools/list":
-		resp.Result = s.handleToolsList()
+		list := s.handleToolsList()
+		if modern {
+			// Filtered per agent, changed by reloads and pins: not cacheable.
+			list["resultType"], list["ttlMs"], list["cacheScope"] = "complete", 0, "private"
+		}
+		resp.Result = list
 	case "tools/call":
 		resp.Result, resp.Error = s.handleToolsCall(req.Params, tc)
+		if modern && resp.Error == nil {
+			resp.Result = complete(resp.Result)
+		}
 	case "ping":
+		// The 2026-07-28 revision removed ping; it stays for legacy clients.
+		if modern {
+			resp.Error = &rpcError{Code: -32601, Message: "Method not found: ping"}
+			break
+		}
 		resp.Result = map[string]any{}
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: fmt.Sprintf("Method not found: %s", req.Method)}
