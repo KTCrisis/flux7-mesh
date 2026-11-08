@@ -38,6 +38,12 @@ const SyncEvery = time.Second
 
 var ErrNotFound = errors.New("no active halt with this ID")
 
+// ErrNotShared means a halt is in force in this process but could not be
+// written to the state database, so other mesh7 processes do not see it yet.
+// The halt is engaged regardless: an emergency stop that waits for SQLite is
+// no stop. It is written again at every reload until the write succeeds.
+var ErrNotShared = errors.New("halt in force in this process only: not written to the state database")
+
 // Halt is one emergency stop.
 type Halt struct {
 	ID        string    `json:"id"`
@@ -51,6 +57,10 @@ type Halt struct {
 	// RevokedGrants are the grants this halt took away, put back on resume
 	// when they have not expired in the meantime.
 	RevokedGrants []grant.Grant `json:"revoked_grants,omitempty"`
+
+	// unshared marks a halt engaged here whose database write failed; a
+	// reload keeps it and writes it again (see ErrNotShared).
+	unshared bool
 }
 
 // Covers reports whether a call by agentID in sessionID falls under the halt.
@@ -135,10 +145,14 @@ func (s *Store) Start(scope Scope, target, reason, by string) (*Halt, bool, erro
 		ID: newID(), Scope: scope, Target: target, Reason: reason,
 		CreatedBy: by, CreatedAt: time.Now().UTC(),
 	}
-	if err := s.dbInsert(h); err != nil {
-		return nil, false, err
-	}
+	// Engage first, persist second: the stop holds in this process even if
+	// the database refuses the write.
 	s.active = append(s.active, h)
+	if err := s.dbInsert(h); err != nil {
+		h.unshared = true
+		slog.Error("halt: engaged in this process only, database write failed", "id", h.ID, "error", err)
+		return h, true, fmt.Errorf("%w: %v", ErrNotShared, err)
+	}
 	return h, true, nil
 }
 
@@ -253,6 +267,18 @@ func (s *Store) reload() error {
 		return err
 	}
 	s.mu.Lock()
+	// A halt engaged here but never written is not in the database: keep it,
+	// and try the write again now that the database answers.
+	for _, h := range s.active {
+		if !h.unshared {
+			continue
+		}
+		if err := s.dbInsert(h); err == nil {
+			h.unshared = false
+			slog.Info("halt: written to the state database after an earlier failure", "id", h.ID)
+		}
+		active = append(active, h)
+	}
 	s.active, s.lastSync = active, time.Now()
 	s.mu.Unlock()
 	return nil

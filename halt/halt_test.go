@@ -1,6 +1,7 @@
 package halt
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -162,5 +163,46 @@ func TestStartRefusesUnknownScope(t *testing.T) {
 	}
 	if len(s.Active()) != 0 {
 		t.Fatal("a halt with an unknown scope was recorded")
+	}
+}
+
+// A halt whose database write fails is engaged anyway in the process that
+// received it, survives reloads, and is written as soon as the database
+// accepts it, so other processes then see it.
+func TestHaltEngagesWhenDatabaseRefusesTheWrite(t *testing.T) {
+	db, err := storage.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s, _ := NewStore(db)
+
+	// The table is unavailable while the operator presses the button.
+	if _, err := db.Exec(`ALTER TABLE halts RENAME TO halts_away`); err != nil {
+		t.Fatal(err)
+	}
+	h, created, err := s.Start(ScopeAgent, "claude", "incident", "op")
+	if !errors.Is(err, ErrNotShared) || h == nil || !created {
+		t.Fatalf("Start = %v, %v, %v; want the halt and ErrNotShared", h, created, err)
+	}
+	if got := s.Match("claude", ""); got == nil || got.ID != h.ID {
+		t.Fatal("halt not engaged after a failed write")
+	}
+	s.lastSync = time.Time{} // a reload while the table is still away fails
+	if s.Match("claude", "") == nil {
+		t.Fatal("halt lost on a failed reload")
+	}
+
+	// The database comes back: the next reload keeps the halt and writes it.
+	if _, err := db.Exec(`ALTER TABLE halts_away RENAME TO halts`); err != nil {
+		t.Fatal(err)
+	}
+	s.lastSync = time.Time{}
+	if s.Match("claude", "") == nil {
+		t.Fatal("halt lost on the reload that followed the recovery")
+	}
+	other, _ := NewStore(db) // another mesh7 process
+	if got := other.Match("claude", ""); got == nil || got.ID != h.ID {
+		t.Fatal("halt not written once the database accepted it")
 	}
 }
