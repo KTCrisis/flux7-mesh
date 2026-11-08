@@ -61,7 +61,17 @@ func main() {
 			if *port > 0 {
 				p = *port
 			}
-			if running, theirs := daemonOnPort(p); running {
+			running, theirs := daemonOnPort(p)
+			if !running && daemonStarting(*configPath) {
+				// A daemon holds its lock but does not answer yet: it is
+				// starting. Wait for it rather than take its port.
+				slog.Info("mesh7 daemon starting, waiting for it", "port", p, "max", daemonWait())
+				running, theirs = waitForDaemon(p, daemonWait())
+				if !running {
+					slog.Warn("mesh7 daemon did not answer in time, running standalone", "port", p)
+				}
+			}
+			if running {
 				ok, warn, err := proxyDecision(configID(*configPath), theirs, p)
 				if err != nil {
 					slog.Error("mesh7 --mcp", "error", err)
@@ -82,6 +92,9 @@ func main() {
 		}
 	}
 
+	if !*mcpMode {
+		holdDaemonLock(*configPath) // before init: clients wait instead of taking the port
+	}
 	m, err := initMesh(*configPath, *port, *specURL, *backendURL)
 	if err != nil {
 		slog.Error("init failed", "error", err)

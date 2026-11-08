@@ -15,6 +15,7 @@ func runServe(args []string) {
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	holdDaemonLock(*configPath) // before init: clients wait instead of taking the port (daemonlock.go)
 	m, err := initMesh(*configPath, *port, "", "")
 	if err != nil {
 		slog.Error("init failed", "error", err)
