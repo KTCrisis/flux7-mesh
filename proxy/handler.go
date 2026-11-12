@@ -120,6 +120,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.admin(r, w, h.handlePinsPending)
 	case r.Method == "POST" && r.URL.Path == "/tools/pins/accept":
 		h.admin(r, w, h.handlePinsAccept)
+	case r.Method == "GET" && r.URL.Path == "/policies/files":
+		h.admin(r, w, h.handlePolicyFiles)
+	case r.Method == "GET" && isPolicyFilePath(r):
+		h.admin(r, w, h.handlePolicyFileGet)
+	case r.Method == "PUT" && isPolicyFilePath(r):
+		h.admin(r, w, h.handlePolicyFilePut)
 	case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/policies/"):
 		h.admin(r, w, h.handlePolicyEdit)
 	case r.Method == "GET" && r.URL.Path == "/traces":
