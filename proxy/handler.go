@@ -47,6 +47,17 @@ type ToolCallResponse struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// Upstreams applies changes to the upstream MCP servers of a running mesh.
+type Upstreams interface {
+	// Reload reads the declared servers again and touches only those that
+	// changed. The result says which, by name.
+	Reload() (any, error)
+	// Restart closes one server and connects it again as declared.
+	Restart(name string) error
+	// Generation counts the changes of the tool catalogue.
+	Generation() uint64
+}
+
 // MCPForwarder is the interface for forwarding calls to upstream MCP servers.
 type MCPForwarder interface {
 	CallTool(ctx context.Context, serverName string, toolName string, arguments map[string]any) (any, error)
@@ -67,6 +78,7 @@ type Handler struct {
 	Halts            *halt.Store // nil: emergency stop off (POST /halts answers 501)
 	Client           *http.Client
 	MCPForwarder     MCPForwarder
+	Upstreams        Upstreams // nil: upstream reload and restart answer 501
 	CLIRunner        *meshexec.Runner
 	SupervisorCfg    config.SupervisorConfig
 	JWTValidator     *auth.Validator
@@ -114,6 +126,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.MCPHTTPHandler.ServeHTTP(w, r)
 
 	// --- Control plane: operator actions, require admin auth ---
+	case r.Method == "POST" && r.URL.Path == "/mcp-servers/reload":
+		h.admin(r, w, h.handleUpstreamsReload)
+	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/mcp-servers/") && strings.HasSuffix(r.URL.Path, "/restart"):
+		h.admin(r, w, h.handleUpstreamRestart)
 	case r.Method == "GET" && r.URL.Path == "/tools/decisions":
 		h.admin(r, w, h.handleToolDecisions)
 	case r.Method == "GET" && r.URL.Path == "/tools/pins":
@@ -1006,6 +1022,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"traces":  h.Traces.Stats(),
 		"version": h.Version,
 		"config":  h.ConfigID,
+		"catalog": h.catalogGeneration(),
 	})
 }
 

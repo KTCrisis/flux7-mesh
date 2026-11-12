@@ -177,3 +177,43 @@ policies:
 		t.Error("callback should not be called for invalid YAML")
 	}
 }
+
+// OnConfigChange fires for a change of the config file, not of a policy file.
+func TestWatcherTellsConfigChangesFromPolicyChanges(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	polDir := filepath.Join(dir, "policies")
+	os.Mkdir(polDir, 0o755)
+	polPath := filepath.Join(polDir, "a.yaml")
+	os.WriteFile(cfgPath, []byte("policy_dir: policies\n"), 0o644)
+	os.WriteFile(polPath, []byte("name: a\nagent: a\nrules:\n  - tools: [\"*\"]\n    action: deny\n"), 0o644)
+
+	policyReloads := make(chan struct{}, 8)
+	configChanges := make(chan struct{}, 8)
+	w, err := NewWatcher(cfgPath, func([]config.Policy) { policyReloads <- struct{}{} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.OnConfigChange = func() { configChanges <- struct{}{} }
+	time.Sleep(100 * time.Millisecond)
+
+	os.WriteFile(polPath, []byte("name: a\nagent: a\nrules:\n  - tools: [\"*\"]\n    action: allow\n"), 0o644)
+	select {
+	case <-policyReloads:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a policy file change did not reload the policies")
+	}
+	select {
+	case <-configChanges:
+		t.Fatal("a policy file change was reported as a config change")
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	os.WriteFile(cfgPath, []byte("policy_dir: policies\nport: 9191\n"), 0o644)
+	select {
+	case <-configChanges:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a config file change was not reported")
+	}
+}
