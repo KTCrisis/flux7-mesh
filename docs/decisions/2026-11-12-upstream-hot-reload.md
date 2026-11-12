@@ -1,5 +1,7 @@
 # Upstream servers follow the config file without a restart
 
+> Amended the same day by [a declaration is held until accepted](2026-11-12-upstream-declarations-held.md): a new or changed declaration is no longer started by the file change alone.
+
 - **Problem**: changing one line of `mcp_servers` (a version, a new server) meant restarting the whole mesh, which cut every agent and every other upstream. Policies already reloaded on a file change; upstreams did not, and nothing in the API could touch them.
 - **Decision**: the watcher that reloads policies also reports a change of the config file; the declared servers are compared by name with the running ones and only the added, changed and removed ones are touched (`upstreams.Apply`). `POST /mcp-servers/reload` does the same on demand, `POST /mcp-servers/{name}/restart` reconnects one server, both traced. `/health` carries a `catalog` counter that moves with every such change. A config that does not load, a duplicate name or an unknown transport changes nothing.
 - **Why**: the YAML stays the declaration and the only place a server is described; what changes is that the mesh obeys it at once. Catalogue pinning observes every reconnection, so a changed tool is held (`pin:changed`) exactly as after a restart, and a server seen for the first time is trusted on first use exactly as at a start. Calls in flight on a server being replaced fail with "client closed"; calls on the others are not disturbed.

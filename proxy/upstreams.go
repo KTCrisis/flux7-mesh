@@ -38,9 +38,10 @@ func (h *Handler) recordUpstreamEdit(r *http.Request, tool string, params map[st
 }
 
 // handleUpstreamsReload serves POST /mcp-servers/reload: read `mcp_servers`
-// again from the config file and bring the running upstreams to it. Servers
-// whose declaration did not change are not touched. A config that does not
-// load changes nothing and answers 422.
+// again from the config file. Servers no longer declared are stopped;
+// declarations that are new or changed are held, and nothing is started for
+// them until POST /mcp-servers/{name}/accept. A config that does not load
+// changes nothing and answers 422.
 func (h *Handler) handleUpstreamsReload(w http.ResponseWriter, r *http.Request) {
 	if h.Upstreams == nil {
 		writeJSON(w, 501, map[string]string{"error": "this mesh does not manage upstreams"})
@@ -56,15 +57,55 @@ func (h *Handler) handleUpstreamsReload(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, map[string]any{"diff": diff, "catalog": h.Upstreams.Generation()})
 }
 
+// upstreamName reads {name} from /mcp-servers/{name}/{verb}.
+func upstreamName(r *http.Request, verb string) (string, bool) {
+	rest := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/mcp-servers/"), "/"+verb)
+	name, err := url.PathUnescape(rest)
+	if err != nil || name == "" || strings.Contains(rest, "/") {
+		return "", false
+	}
+	return name, true
+}
+
+// handleUpstreamsHeld serves GET /mcp-servers/held: the declarations that
+// appeared or changed in the config file while the mesh ran, and what each
+// would run. Admin only: a command line is not for agents to read.
+func (h *Handler) handleUpstreamsHeld(w http.ResponseWriter, _ *http.Request) {
+	if h.Upstreams == nil {
+		writeJSON(w, 200, []any{})
+		return
+	}
+	writeJSON(w, 200, h.Upstreams.Held())
+}
+
+// handleUpstreamAccept serves POST /mcp-servers/{name}/accept: start a held
+// declaration. This is the operator's act that a restart used to be.
+func (h *Handler) handleUpstreamAccept(w http.ResponseWriter, r *http.Request) {
+	if h.Upstreams == nil {
+		writeJSON(w, 501, map[string]string{"error": "this mesh does not manage upstreams"})
+		return
+	}
+	name, ok := upstreamName(r, "accept")
+	if !ok {
+		writeJSON(w, 400, map[string]string{"error": "want /mcp-servers/{name}/accept"})
+		return
+	}
+	if err := h.Upstreams.Accept(name); err != nil {
+		writeJSON(w, 404, map[string]string{"error": err.Error()})
+		return
+	}
+	h.recordUpstreamEdit(r, "mesh.upstream_accept", map[string]any{"server": name}, 200, "")
+	writeJSON(w, 200, map[string]any{"server": name, "catalog": h.Upstreams.Generation()})
+}
+
 // handleUpstreamRestart serves POST /mcp-servers/{name}/restart.
 func (h *Handler) handleUpstreamRestart(w http.ResponseWriter, r *http.Request) {
 	if h.Upstreams == nil {
 		writeJSON(w, 501, map[string]string{"error": "this mesh does not manage upstreams"})
 		return
 	}
-	rest := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), "/mcp-servers/"), "/restart")
-	name, err := url.PathUnescape(rest)
-	if err != nil || name == "" || strings.Contains(rest, "/") {
+	name, ok := upstreamName(r, "restart")
+	if !ok {
 		writeJSON(w, 400, map[string]string{"error": "want /mcp-servers/{name}/restart"})
 		return
 	}

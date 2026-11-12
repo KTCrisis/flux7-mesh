@@ -21,11 +21,19 @@ import (
 // list to the running mesh by touching only the servers that changed.
 //
 // A server is identified by its name. One whose declaration is unchanged is
-// left alone, calls in flight included. One that changed or disappeared is
-// closed first: its calls in flight fail with "client closed", and its tools
-// leave the registry until the new declaration has connected. Catalogue
-// pinning observes every (re)connection, so a reload never makes a new or
-// changed tool callable by itself.
+// left alone, calls in flight included.
+//
+// A declaration is a command line: starting it runs a program as the mesh.
+// The file that holds it can be written by anything that can write files,
+// agents included, so a declaration that appears or changes while the mesh
+// runs is not started. It is held until an operator accepts it, and the
+// declaration it would replace keeps running meanwhile. Only the declarations
+// read when the daemon starts are trusted as they are: starting the daemon is
+// an operator's act. A declaration that disappears is applied at once, since
+// removing a server can only restrict.
+//
+// When a server is replaced or removed its calls in flight fail with "client
+// closed". Catalogue pinning observes every (re)connection.
 type upstreams struct {
 	mgr  *mcp.Manager
 	reg  *registry.Registry
@@ -40,8 +48,9 @@ type upstreams struct {
 
 	mu      sync.Mutex
 	current map[string]config.MCPServerConfig
-	epoch   map[string]uint64        // bumped whenever a server is stopped
-	stops   map[string]chan struct{} // stops the retry loop of a server
+	epoch   map[string]uint64                 // bumped whenever a server is stopped
+	stops   map[string]chan struct{}          // stops the retry loop of a server
+	held    map[string]config.MCPServerConfig // declarations awaiting an operator
 	closed  bool
 
 	// generation counts the changes of the tool catalogue caused by upstreams
@@ -59,6 +68,7 @@ func newUpstreams(mgr *mcp.Manager, reg *registry.Registry, pins *pin.Store) *up
 		current:        map[string]config.MCPServerConfig{},
 		epoch:          map[string]uint64{},
 		stops:          map[string]chan struct{}{},
+		held:           map[string]config.MCPServerConfig{},
 	}
 }
 
@@ -68,10 +78,29 @@ type UpstreamDiff struct {
 	Changed   []string `json:"changed"`
 	Removed   []string `json:"removed"`
 	Unchanged []string `json:"unchanged"`
+	// Held names the declarations that are new or changed and wait for an
+	// operator: nothing was started for them.
+	Held []string `json:"held"`
+	// newlyHeld is the part of Held this proposal added or altered.
+	newlyHeld []string
 }
 
 func (d UpstreamDiff) empty() bool {
 	return len(d.Added)+len(d.Changed)+len(d.Removed) == 0
+}
+
+// HeldUpstream is a declaration awaiting acceptance, shown to the operator who
+// decides: what would run, and whether it replaces a server that runs now.
+// Values of env and headers are not shown, they are where secrets live.
+type HeldUpstream struct {
+	Name       string   `json:"name"`
+	Transport  string   `json:"transport"`
+	Command    string   `json:"command,omitempty"`
+	Args       []string `json:"args,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	EnvKeys    []string `json:"env_keys,omitempty"`
+	HeaderKeys []string `json:"header_keys,omitempty"`
+	Replaces   bool     `json:"replaces"` // a server of this name runs with another declaration
 }
 
 func newClient(sc config.MCPServerConfig) (*mcp.MCPClient, error) {
@@ -213,7 +242,7 @@ func (u *upstreams) diff(servers []config.MCPServerConfig) (UpstreamDiff, map[st
 	for _, sc := range servers {
 		want[sc.Name] = sc
 	}
-	d := UpstreamDiff{Added: []string{}, Changed: []string{}, Removed: []string{}, Unchanged: []string{}}
+	d := UpstreamDiff{Added: []string{}, Changed: []string{}, Removed: []string{}, Unchanged: []string{}, Held: []string{}}
 	u.mu.Lock()
 	for name, sc := range want {
 		old, ok := u.current[name]
@@ -239,22 +268,34 @@ func (u *upstreams) diff(servers []config.MCPServerConfig) (UpstreamDiff, map[st
 	return d, want
 }
 
-// Apply brings the running upstreams to a new list of declarations and
-// returns once every touched server has connected or entered its retry loop.
-func (u *upstreams) Apply(servers []config.MCPServerConfig) (UpstreamDiff, error) {
+func checkDeclarations(servers []config.MCPServerConfig) error {
 	seen := map[string]bool{}
 	for _, sc := range servers {
 		if sc.Name == "" {
-			return UpstreamDiff{}, fmt.Errorf("mcp_servers: a server has no name")
+			return fmt.Errorf("mcp_servers: a server has no name")
 		}
 		if seen[sc.Name] {
-			return UpstreamDiff{}, fmt.Errorf("mcp_servers: duplicate name %q", sc.Name)
+			return fmt.Errorf("mcp_servers: duplicate name %q", sc.Name)
 		}
 		seen[sc.Name] = true
 		if _, err := newClient(sc); err != nil {
-			return UpstreamDiff{}, fmt.Errorf("mcp_servers %q: %w", sc.Name, err)
+			return fmt.Errorf("mcp_servers %q: %w", sc.Name, err)
 		}
 	}
+	return nil
+}
+
+// Apply brings the running upstreams to a list of declarations the caller
+// vouches for, and returns once every touched server has connected or entered
+// its retry loop. A list read from the config file of a running mesh is not
+// such a list: that one goes through Propose.
+func (u *upstreams) Apply(servers []config.MCPServerConfig) (UpstreamDiff, error) {
+	if err := checkDeclarations(servers); err != nil {
+		return UpstreamDiff{}, err
+	}
+	u.mu.Lock()
+	u.held = map[string]config.MCPServerConfig{} // the whole list is trusted here
+	u.mu.Unlock()
 
 	d, want := u.diff(servers)
 	for _, name := range d.Removed {
@@ -278,8 +319,95 @@ func (u *upstreams) Apply(servers []config.MCPServerConfig) (UpstreamDiff, error
 	return d, nil
 }
 
-// Reload reads the declarations again and applies them. A config that does
-// not load leaves the running upstreams as they are.
+// Propose compares a list of declarations nobody vouched for with what runs.
+// Servers that disappeared are stopped. Declarations that are new or changed
+// are held, not started: the running declaration of a changed server stays in
+// service until Accept. A held declaration that is withdrawn, or set back to
+// what runs, stops being held.
+func (u *upstreams) Propose(servers []config.MCPServerConfig) (UpstreamDiff, error) {
+	if err := checkDeclarations(servers); err != nil {
+		return UpstreamDiff{}, err
+	}
+	d, want := u.diff(servers)
+	for _, name := range d.Removed {
+		u.stop(name)
+	}
+
+	u.mu.Lock()
+	held := map[string]config.MCPServerConfig{}
+	for _, name := range append(append([]string{}, d.Added...), d.Changed...) {
+		held[name] = want[name]
+		d.Held = append(d.Held, name)
+	}
+	fresh := []string{} // held now and not held, or held differently, before
+	for name, sc := range held {
+		if old, ok := u.held[name]; !ok || !reflect.DeepEqual(old, sc) {
+			fresh = append(fresh, name)
+		}
+	}
+	u.held = held
+	u.mu.Unlock()
+
+	sort.Strings(d.Held)
+	sort.Strings(fresh)
+	// nothing was started for these: the diff must not say they were applied
+	d.Added, d.Changed = []string{}, []string{}
+	if len(d.Removed) > 0 {
+		slog.Info("upstream hot-reload", "removed", d.Removed, "unchanged", len(d.Unchanged))
+	}
+	d.newlyHeld = fresh
+	if len(fresh) > 0 {
+		slog.Warn("upstream declarations held until accepted: nothing was started", "held", fresh,
+			"accept", "mesh7 upstream accept <name>")
+	}
+	return d, nil
+}
+
+// Held lists the declarations awaiting acceptance, by name.
+func (u *upstreams) Held() any {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	out := make([]HeldUpstream, 0, len(u.held))
+	for name, sc := range u.held {
+		h := HeldUpstream{Name: name, Transport: sc.Transport, Command: sc.Command, Args: sc.Args, URL: sc.URL}
+		for k := range sc.Env {
+			h.EnvKeys = append(h.EnvKeys, k)
+		}
+		for k := range sc.Headers {
+			h.HeaderKeys = append(h.HeaderKeys, k)
+		}
+		sort.Strings(h.EnvKeys)
+		sort.Strings(h.HeaderKeys)
+		_, h.Replaces = u.current[name]
+		out = append(out, h)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// Accept starts a held declaration: the operator has read it and vouches for
+// it. The server it replaces, if any, is closed first.
+func (u *upstreams) Accept(name string) error {
+	u.mu.Lock()
+	sc, ok := u.held[name]
+	if ok {
+		delete(u.held, name)
+	}
+	_, running := u.current[name]
+	u.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no held declaration named %q", name)
+	}
+	if running {
+		u.stop(name)
+	}
+	u.start(sc)
+	slog.Info("upstream declaration accepted", "name", name, "replaced", running)
+	return nil
+}
+
+// Reload reads the declarations again from the config file and proposes them.
+// A config that does not load leaves the running upstreams as they are.
 func (u *upstreams) Reload() (any, error) {
 	if u.load == nil {
 		return nil, fmt.Errorf("no config file to reload from")
@@ -288,7 +416,7 @@ func (u *upstreams) Reload() (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return u.Apply(servers)
+	return u.Propose(servers)
 }
 
 // Restart closes one server and connects it again from its current

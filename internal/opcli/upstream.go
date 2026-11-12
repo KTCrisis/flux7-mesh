@@ -23,6 +23,42 @@ type upstreamDiff struct {
 	Changed   []string `json:"changed"`
 	Removed   []string `json:"removed"`
 	Unchanged []string `json:"unchanged"`
+	Held      []string `json:"held"`
+}
+
+type heldView struct {
+	Name       string   `json:"name"`
+	Transport  string   `json:"transport"`
+	Command    string   `json:"command"`
+	Args       []string `json:"args"`
+	URL        string   `json:"url"`
+	EnvKeys    []string `json:"env_keys"`
+	HeaderKeys []string `json:"header_keys"`
+	Replaces   bool     `json:"replaces"`
+}
+
+// printHeld shows each held declaration as the operator must read it before
+// accepting: the program that would run, or the address that would be called.
+func printHeld(w io.Writer, held []heldView) {
+	for _, h := range held {
+		what := "new server"
+		if h.Replaces {
+			what = "replaces the running declaration"
+		}
+		fmt.Fprintf(w, "%s  (%s, %s)\n", h.Name, h.Transport, what)
+		if h.Command != "" {
+			fmt.Fprintf(w, "    runs     %s\n", strings.Join(append([]string{h.Command}, h.Args...), " "))
+		}
+		if h.URL != "" {
+			fmt.Fprintf(w, "    calls    %s\n", h.URL)
+		}
+		if len(h.EnvKeys) > 0 {
+			fmt.Fprintf(w, "    env      %s\n", strings.Join(h.EnvKeys, ", "))
+		}
+		if len(h.HeaderKeys) > 0 {
+			fmt.Fprintf(w, "    headers  %s\n", strings.Join(h.HeaderKeys, ", "))
+		}
+	}
 }
 
 // call runs one control-plane request and decodes its JSON answer into out
@@ -54,7 +90,7 @@ func call(method, path, body string, out any) error {
 // exit code.
 func cmdUpstream(args []string, stdout, stderr io.Writer) int {
 	usage := func() int {
-		fmt.Fprintf(stderr, "usage: %s upstream list | reload | restart <name>\n", prog)
+		fmt.Fprintf(stderr, "usage: %s upstream list | reload | held | accept <name> | restart <name>\n", prog)
 		return 1
 	}
 	if len(args) == 0 {
@@ -85,7 +121,7 @@ func cmdUpstream(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		d := res.Diff
-		if len(d.Added)+len(d.Changed)+len(d.Removed) == 0 {
+		if len(d.Added)+len(d.Changed)+len(d.Removed)+len(d.Held) == 0 {
 			fmt.Fprintf(stdout, "nothing changed (%d upstream(s) left as they were)\n", len(d.Unchanged))
 			return 0
 		}
@@ -98,6 +134,38 @@ func cmdUpstream(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		fmt.Fprintf(stdout, "%-8s %d\n", "untouched", len(d.Unchanged))
+		if len(d.Held) > 0 {
+			fmt.Fprintf(stdout, "\nheld, nothing started: %s\n", strings.Join(d.Held, ", "))
+			var held []heldView
+			if call("GET", "/mcp-servers/held", "", &held) == nil {
+				printHeld(stdout, held)
+			}
+			fmt.Fprintf(stdout, "\nread what each would run, then: %s upstream accept <name>\n", prog)
+		}
+		return 0
+
+	case "held":
+		var held []heldView
+		if err := call("GET", "/mcp-servers/held", "", &held); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+		if len(held) == 0 {
+			fmt.Fprintln(stdout, "no declaration held")
+			return 0
+		}
+		printHeld(stdout, held)
+		return 0
+
+	case "accept":
+		if len(args) != 2 {
+			return usage()
+		}
+		if err := call("POST", "/mcp-servers/"+url.PathEscape(args[1])+"/accept", "", nil); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s accepted and started\n", args[1])
 		return 0
 
 	case "restart":
