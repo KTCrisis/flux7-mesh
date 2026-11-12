@@ -101,7 +101,7 @@ Restart Claude Code: the tools are there, the rules apply, every call is traced.
 
 ## Documentation
 
-- [Configuration](https://docs.flux7.art/mesh7/configuration/) · [Writing policies](https://docs.flux7.art/mesh7/writing-policies/) · [Tool classification](https://docs.flux7.art/mesh7/tool-classification/)
+- [Configuration](https://docs.flux7.art/mesh7/configuration/) · [Changing upstreams](https://docs.flux7.art/mesh7/upstreams/) · [Writing policies](https://docs.flux7.art/mesh7/writing-policies/) · [Tool classification](https://docs.flux7.art/mesh7/tool-classification/)
 - [Approval flow](https://docs.flux7.art/mesh7/approval-flow/) · [CLI tools](https://docs.flux7.art/mesh7/cli-tools/) · [Supervisor protocol](https://docs.flux7.art/mesh7/supervisor-protocol/)
 - [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/) · [Control-plane auth](https://docs.flux7.art/mesh7/control-plane-auth/) · [Agent security](https://docs.flux7.art/mesh7/security/)
 - [Trace integrity](https://docs.flux7.art/mesh7/trace-integrity/) · [Observability](https://docs.flux7.art/mesh7/otel/) · [Deployment modes](https://docs.flux7.art/mesh7/deployment-modes/)
