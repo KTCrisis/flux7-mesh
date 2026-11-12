@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -238,5 +239,107 @@ func TestUpstreamsReloadKeepsWhatRunsWhenTheConfigFails(t *testing.T) {
 	}
 	if !toolNames(u, "a")["a.ping"] {
 		t.Error("a failed reload dropped the running upstream")
+	}
+}
+
+// A declaration that appears or changes while the mesh runs starts nothing
+// until an operator accepts it; the one it would replace keeps running.
+func TestUpstreamsProposeHoldsNewAndChangedDeclarations(t *testing.T) {
+	a, b, a2 := newFakeUpstream(t, "ping"), newFakeUpstream(t, "search"), newFakeUpstream(t, "pong")
+	u := testUpstreams(t)
+	u.StartAll([]config.MCPServerConfig{a.as("a")})
+	gen := u.Generation()
+
+	// The hot path is Reload: it must go through Propose, never Apply.
+	changedA := a2.as("a")
+	changedA.Env = map[string]string{"API_TOKEN": "s3cret"}
+	u.load = func() ([]config.MCPServerConfig, error) {
+		return []config.MCPServerConfig{changedA, b.as("b")}, nil
+	}
+	res, err := u.Reload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := res.(UpstreamDiff)
+	if len(d.Held) != 2 || d.Held[0] != "a" || d.Held[1] != "b" || len(d.Added)+len(d.Changed)+len(d.Removed) != 0 {
+		t.Fatalf("diff = %+v, want a and b held and nothing applied", d)
+	}
+	if b.inits.Load() != 0 || a2.inits.Load() != 0 {
+		t.Fatalf("a held declaration was started (handshakes: b %d, new a %d)", b.inits.Load(), a2.inits.Load())
+	}
+	if !toolNames(u, "a")["a.ping"] || a.inits.Load() != 1 || len(toolNames(u, "b")) != 0 {
+		t.Errorf("the running declaration of a was disturbed, or b has tools: a %v b %v", toolNames(u, "a"), toolNames(u, "b"))
+	}
+	if u.Generation() != gen {
+		t.Error("the catalogue generation moved although nothing was started")
+	}
+
+	// The operator sees what would run, without the values of env.
+	held := u.Held().([]HeldUpstream)
+	if len(held) != 2 || !held[0].Replaces || held[1].Replaces || held[0].URL != a2.URL {
+		t.Errorf("held = %+v", held)
+	}
+	if len(held[0].EnvKeys) != 1 || held[0].EnvKeys[0] != "API_TOKEN" {
+		t.Errorf("env keys = %v, want the key without its value", held[0].EnvKeys)
+	}
+	if raw, _ := json.Marshal(held); bytes.Contains(raw, []byte("s3cret")) {
+		t.Error("a held declaration discloses an env value")
+	}
+
+	// Accept starts it, replacing what ran.
+	if err := u.Accept("a"); err != nil {
+		t.Fatal(err)
+	}
+	if names := toolNames(u, "a"); names["a.ping"] || !names["a.pong"] || a2.inits.Load() != 1 {
+		t.Errorf("after accept a offers %v", names)
+	}
+	if b.inits.Load() != 0 {
+		t.Error("accepting a started b")
+	}
+	if err := u.Accept("b"); err != nil || !toolNames(u, "b")["b.search"] {
+		t.Errorf("accept b: %v, tools %v", err, toolNames(u, "b"))
+	}
+	if err := u.Accept("b"); err == nil {
+		t.Error("accepting twice answered no error")
+	}
+	if len(u.Held().([]HeldUpstream)) != 0 {
+		t.Error("accepted declarations are still held")
+	}
+}
+
+func TestUpstreamsProposeWithdrawnOrRevertedIsNoLongerHeld(t *testing.T) {
+	a, b, a2 := newFakeUpstream(t, "ping"), newFakeUpstream(t, "search"), newFakeUpstream(t, "pong")
+	u := testUpstreams(t)
+	u.StartAll([]config.MCPServerConfig{a.as("a")})
+
+	u.Propose([]config.MCPServerConfig{a2.as("a"), b.as("b")})
+	if n := len(u.Held().([]HeldUpstream)); n != 2 {
+		t.Fatalf("%d held, want 2", n)
+	}
+	// a set back to what runs, b withdrawn
+	d, _ := u.Propose([]config.MCPServerConfig{a.as("a")})
+	if len(d.Held) != 0 || len(u.Held().([]HeldUpstream)) != 0 {
+		t.Errorf("still held after revert and withdrawal: %+v", d)
+	}
+	if err := u.Accept("b"); err == nil {
+		t.Error("a withdrawn declaration could still be accepted")
+	}
+	if a.inits.Load() != 1 || b.inits.Load() != 0 || a2.inits.Load() != 0 {
+		t.Error("proposing and withdrawing started or restarted something")
+	}
+}
+
+// Removing a declaration needs no acceptance: it can only restrict.
+func TestUpstreamsProposeRemovesAtOnce(t *testing.T) {
+	a, b := newFakeUpstream(t, "ping"), newFakeUpstream(t, "search")
+	u := testUpstreams(t)
+	u.StartAll([]config.MCPServerConfig{a.as("a"), b.as("b")})
+
+	d, err := u.Propose([]config.MCPServerConfig{b.as("b")})
+	if err != nil || len(d.Removed) != 1 || d.Removed[0] != "a" {
+		t.Fatalf("diff = %+v err %v, want a removed", d, err)
+	}
+	if len(toolNames(u, "a")) != 0 || u.mgr.Get("a") != nil || !toolNames(u, "b")["b.search"] {
+		t.Error("removal not applied at once, or it touched b")
 	}
 }

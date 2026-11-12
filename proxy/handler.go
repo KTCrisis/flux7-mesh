@@ -49,9 +49,14 @@ type ToolCallResponse struct {
 
 // Upstreams applies changes to the upstream MCP servers of a running mesh.
 type Upstreams interface {
-	// Reload reads the declared servers again and touches only those that
-	// changed. The result says which, by name.
+	// Reload reads the declared servers again. Servers no longer declared
+	// are stopped; declarations that are new or changed are held until
+	// accepted. The result says which, by name.
 	Reload() (any, error)
+	// Held lists the declarations awaiting acceptance, with what would run.
+	Held() any
+	// Accept starts a held declaration.
+	Accept(name string) error
 	// Restart closes one server and connects it again as declared.
 	Restart(name string) error
 	// Generation counts the changes of the tool catalogue.
@@ -128,6 +133,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// --- Control plane: operator actions, require admin auth ---
 	case r.Method == "POST" && r.URL.Path == "/mcp-servers/reload":
 		h.admin(r, w, h.handleUpstreamsReload)
+	case r.Method == "GET" && r.URL.Path == "/mcp-servers/held":
+		h.admin(r, w, h.handleUpstreamsHeld)
+	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/mcp-servers/") && strings.HasSuffix(r.URL.Path, "/accept"):
+		h.admin(r, w, h.handleUpstreamAccept)
 	case r.Method == "POST" && strings.HasPrefix(r.URL.Path, "/mcp-servers/") && strings.HasSuffix(r.URL.Path, "/restart"):
 		h.admin(r, w, h.handleUpstreamRestart)
 	case r.Method == "GET" && r.URL.Path == "/tools/decisions":

@@ -118,9 +118,15 @@ commands:
   resume <halt-id>     Lift a stop; the grants it revoked come back if they
                        have not expired
   upstream list        Upstream MCP servers: status and number of tools
-  upstream reload      Read mcp_servers again from the config file and touch
-                       only the servers that changed (also done by the mesh
-                       itself when the file changes)
+  upstream reload      Read mcp_servers again from the config file (the mesh
+                       does it by itself when the file changes). Servers no
+                       longer declared are stopped. Declarations that are new
+                       or changed are held: nothing is started for them
+  upstream held        The held declarations and what each would run
+  upstream accept <name>
+                       Start a held declaration, replacing the server of that
+                       name if one runs. This is the operator's go-ahead a
+                       restart used to be
   upstream restart <name>
                        Close one upstream and connect it again as declared
   pin list             Upstream tools held back: new, or changed since the

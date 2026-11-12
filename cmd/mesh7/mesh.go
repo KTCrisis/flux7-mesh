@@ -355,8 +355,24 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		// the same watcher tells when the config file itself changed: the
 		// declared upstreams are compared and only the changed ones touched
 		policyWatcher.OnConfigChange = func() {
-			if _, err := m.upstreams.Reload(); err != nil {
+			res, err := m.upstreams.Reload()
+			if err != nil {
 				slog.Error("upstream hot-reload failed, keeping current upstreams", "error", err)
+				return
+			}
+			// A declaration that appeared or changed in the file is evidence
+			// worth keeping, whoever wrote it: it goes in the trace chain.
+			if d, ok := res.(UpstreamDiff); ok && (len(d.newlyHeld) > 0 || len(d.Removed) > 0) {
+				m.traces.Record(trace.Entry{
+					TraceID:    trace.NewID(),
+					AgentID:    "config-file",
+					Tool:       "mesh.upstream_file_change",
+					Params:     map[string]any{"held": d.newlyHeld, "removed": d.Removed},
+					Policy:     "human_approval",
+					PolicyRule: "upstream-declaration",
+					StatusCode: 202,
+					Timestamp:  time.Now().UTC(),
+				})
 			}
 		}
 		m.closers = append(m.closers, func() { policyWatcher.Close() })
