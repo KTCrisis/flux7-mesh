@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDaemonOnPortNoServer(t *testing.T) {
@@ -149,5 +153,95 @@ func TestStdioProxyUsesTokenWhenProvided(t *testing.T) {
 	}
 	if gotAuth != "Bearer header.payload.sig" {
 		t.Errorf("expected raw token bearer, got %q", gotAuth)
+	}
+}
+
+// syncBuffer is a bytes.Buffer two goroutines can use.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// The daemon cannot push; the proxy tells the client when the catalogue moved,
+// and only once the client has finished its handshake.
+func TestStdioProxyAnnouncesCatalogChanges(t *testing.T) {
+	old := catalogPollInterval
+	catalogPollInterval = 20 * time.Millisecond
+	defer func() { catalogPollInterval = old }()
+
+	var catalog atomic.Uint64
+	catalog.Store(4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			fmt.Fprintf(w, `{"status":"ok","catalog":%d}`, catalog.Load())
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"notifications/`)) {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+	}))
+	defer srv.Close()
+
+	in, feed := io.Pipe()
+	out := &syncBuffer{}
+	done := make(chan error, 1)
+	go func() { done <- runStdioProxyWith(srv.URL, "claude", "", in, out) }()
+	const note = `"notifications/tools/list_changed"`
+	wait := func(what string, cond func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if cond() {
+				return
+			}
+		}
+		t.Fatalf("never happened: %s; out = %q", what, out.String())
+	}
+
+	// Before the handshake is over, a change is not announced.
+	fmt.Fprintln(feed, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	wait("the initialize answer", func() bool { return strings.Contains(out.String(), `"id":1`) })
+	catalog.Store(5)
+	time.Sleep(120 * time.Millisecond)
+	if strings.Contains(out.String(), note) {
+		t.Fatal("list_changed sent before notifications/initialized")
+	}
+
+	fmt.Fprintln(feed, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	time.Sleep(60 * time.Millisecond)
+	if strings.Contains(out.String(), note) {
+		t.Fatal("list_changed sent although the catalogue did not move since the handshake")
+	}
+	catalog.Store(6)
+	wait("list_changed after a catalogue change", func() bool { return strings.Count(out.String(), note) == 1 })
+
+	// One change, one line, and each line is whole JSON.
+	time.Sleep(100 * time.Millisecond)
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if !json.Valid([]byte(line)) {
+			t.Errorf("interleaved output line: %q", line)
+		}
+	}
+	if n := strings.Count(out.String(), note); n != 1 {
+		t.Errorf("%d notifications for one change", n)
+	}
+
+	feed.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

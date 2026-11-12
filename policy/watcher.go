@@ -3,6 +3,7 @@ package policy
 import (
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/KTCrisis/flux7-mesh/config"
@@ -17,6 +18,15 @@ type Watcher struct {
 	fsw        *fsnotify.Watcher
 	onReload   func([]config.Policy)
 	done       chan struct{}
+
+	// OnConfigChange, when set, is called after a change of the config file
+	// itself (not of a policy file), once the policies have been reloaded.
+	// Set it before the file can change; the watcher calls it from its own
+	// goroutine.
+	OnConfigChange func()
+
+	mu            sync.Mutex
+	configTouched bool
 }
 
 // NewWatcher starts watching configPath (and the policy_dir it references)
@@ -73,6 +83,11 @@ func (w *Watcher) loop(policyDir string) {
 			if !isRelevant(ev, w.configPath, policyDir) {
 				continue
 			}
+			if abs, err := filepath.Abs(ev.Name); err == nil && abs == w.configPath {
+				w.mu.Lock()
+				w.configTouched = true
+				w.mu.Unlock()
+			}
 			if debounce != nil {
 				debounce.Stop()
 			}
@@ -107,13 +122,24 @@ func isRelevant(ev fsnotify.Event, configPath, policyDir string) bool {
 }
 
 func (w *Watcher) reload() {
+	w.mu.Lock()
+	touched := w.configTouched
+	w.configTouched = false
+	w.mu.Unlock()
+
 	policies, _, err := config.LoadPolicies(w.configPath)
 	if err != nil {
 		slog.Error("policy hot-reload failed, keeping current policies", "error", err)
-		return
+	} else {
+		slog.Info("policy hot-reload", "policies", len(policies))
+		w.onReload(policies)
 	}
-	slog.Info("policy hot-reload", "policies", len(policies))
-	w.onReload(policies)
+	// The rest of the config is the callback's to read and judge: it is told
+	// even when the policies did not load, and keeps what runs if it cannot
+	// load the file either.
+	if touched && w.OnConfigChange != nil {
+		w.OnConfigChange()
+	}
 }
 
 func (w *Watcher) Close() {

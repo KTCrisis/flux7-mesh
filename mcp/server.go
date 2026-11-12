@@ -285,7 +285,9 @@ func (s *Server) handleInitialize() map[string]any {
 	return map[string]any{
 		"protocolVersion": "2024-11-05",
 		"capabilities": map[string]any{
-			"tools": map[string]any{},
+			// the list changes when an upstream is added, changed or removed
+			// while the mesh runs; the stdio proxy sends the notification
+			"tools": map[string]any{"listChanged": true},
 		},
 		"serverInfo": map[string]any{
 			"name":    "flux7-mesh",

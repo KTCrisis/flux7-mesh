@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +37,7 @@ type meshState struct {
 	pins       *pin.Store // nil unless pin_tools
 	handler    *proxy.Handler
 	mcpManager *mcp.Manager
+	upstreams  *upstreams
 	mcpHTTP    *mcp.HTTPHandler
 	closers    []func()
 }
@@ -296,77 +296,24 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		slog.Info("control plane: no admin token — restricted to loopback callers")
 	}
 
-	// Upstream MCP servers (parallel)
+	// Upstream MCP servers. The manager exists even with none declared, so a
+	// server added to the config later can be connected without a restart.
+	m.mcpManager = mcp.NewManager()
+	m.handler.MCPForwarder = m.mcpManager
+	m.upstreams = newUpstreams(m.mcpManager, m.reg, m.pins)
+	if configPath != "" {
+		m.upstreams.load = func() ([]config.MCPServerConfig, error) {
+			c, err := config.Load(configPath)
+			if err != nil {
+				return nil, err
+			}
+			return c.MCPServers, nil
+		}
+	}
+	m.handler.Upstreams = m.upstreams
+	m.closers = append(m.closers, m.upstreams.Close)
 	if len(cfg.MCPServers) > 0 {
-		m.mcpManager = mcp.NewManager()
-		m.handler.MCPForwarder = m.mcpManager
-
-		// connect builds the client of one upstream, connects it and registers
-		// its tools; used at start and by the retries
-		connect := func(ctx context.Context, sc config.MCPServerConfig) error {
-			var client *mcp.MCPClient
-			switch sc.Transport {
-			case "stdio":
-				client = mcp.NewStdioClient(sc.Name, sc.Command, sc.Args, sc.Env)
-			case "sse":
-				client = mcp.NewSSEClient(sc.Name, sc.URL, sc.Headers)
-			case "streamable-http":
-				client = mcp.NewStreamableHTTPClient(sc.Name, sc.URL, sc.Headers)
-			default:
-				return fmt.Errorf("unsupported MCP transport %q", sc.Transport)
-			}
-			client.ForwardIdentity = sc.ForwardIdentity
-			if err := client.Connect(ctx); err != nil { // Connect closes the client on failure
-				return err
-			}
-			m.mcpManager.Add(client)
-			defs := convertMCPTools(client.Tools())
-			m.reg.LoadMCP(sc.Name, defs)
-			if m.pins != nil {
-				if err := m.pins.Observe(sc.Name, m.reg.ByServer(sc.Name)); err != nil {
-					slog.Error("pin catalogue", "server", sc.Name, "error", err)
-				}
-				for _, v := range m.pins.Pending() {
-					if v.Server == sc.Name {
-						slog.Warn("upstream tool held back until accepted", "tool", v.Tool, "status", v.Status)
-					}
-				}
-			}
-			for _, d := range defs {
-				slog.Info("  MCP tool registered", "name", sc.Name+"."+d.Name, "server", sc.Name)
-			}
-			return nil
-		}
-
-		// an upstream down at start is retried in the background until it
-		// answers or mesh7 stops; meanwhile /mcp-servers shows it "retrying"
-		stopRetries := make(chan struct{})
-		m.closers = append(m.closers, func() { close(stopRetries) })
-		retry := func(sc config.MCPServerConfig, err error) {
-			m.mcpManager.SetRetrying(sc.Name, sc.Transport, err)
-			go mcp.RetryConnect(stopRetries, sc.Name, func() error {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				return connect(ctx, sc)
-			}, 5*time.Second, 5*time.Minute, func(err error) { m.mcpManager.SetRetrying(sc.Name, sc.Transport, err) })
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		var wg sync.WaitGroup
-		for _, serverCfg := range cfg.MCPServers {
-			wg.Add(1)
-			go func(sc config.MCPServerConfig) {
-				defer wg.Done()
-				if err := connect(ctx, sc); err != nil {
-					slog.Error("failed to connect MCP server, retrying in the background", "name", sc.Name, "error", err)
-					if sc.Transport == "stdio" || sc.Transport == "sse" || sc.Transport == "streamable-http" {
-						retry(sc, err)
-					}
-				}
-			}(serverCfg)
-		}
-		wg.Wait()
-		cancel()
+		m.upstreams.StartAll(cfg.MCPServers)
 		slog.Info("MCP upstream servers connected", "count", len(m.mcpManager.All()))
 	}
 
@@ -405,6 +352,13 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	if err != nil {
 		slog.Warn("policy hot-reload disabled", "error", err)
 	} else {
+		// the same watcher tells when the config file itself changed: the
+		// declared upstreams are compared and only the changed ones touched
+		policyWatcher.OnConfigChange = func() {
+			if _, err := m.upstreams.Reload(); err != nil {
+				slog.Error("upstream hot-reload failed, keeping current upstreams", "error", err)
+			}
+		}
 		m.closers = append(m.closers, func() { policyWatcher.Close() })
 		slog.Info("policy hot-reload enabled", "config", configPath)
 	}
@@ -433,9 +387,7 @@ func (m *meshState) ServeHTTP() error {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		slog.Info("shutting down...")
-		if m.mcpManager != nil {
-			m.mcpManager.CloseAll()
-		}
+		m.upstreams.Close()
 		srv.Shutdown(context.Background())
 	}()
 

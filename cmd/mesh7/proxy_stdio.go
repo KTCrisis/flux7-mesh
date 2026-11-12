@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -94,6 +97,33 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 	scanner.Buffer(make([]byte, 4<<20), 4<<20)
 	writer := bufio.NewWriter(out)
 
+	// Two writers share stdout: the answers below and the catalogue watcher.
+	var wmu sync.Mutex
+	writeLine := func(b []byte) {
+		wmu.Lock()
+		defer wmu.Unlock()
+		_, _ = writer.Write(bytes.TrimRight(b, "\r\n"))
+		_ = writer.WriteByte('\n')
+		_ = writer.Flush()
+	}
+
+	// The daemon cannot push to a client it only answers. This process can:
+	// it watches the daemon's catalogue counter and tells the client when the
+	// tool list is worth reading again (an upstream added, changed or removed).
+	var initialized atomic.Bool
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		watchCatalog(watchCtx, base, func() {
+			if initialized.Load() {
+				writeLine([]byte(`{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}`))
+			}
+		})
+	}()
+	// nothing is written to out once this function has returned
+	defer func() { stopWatch(); <-watchDone }()
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -121,6 +151,9 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 
 		if resp.StatusCode == http.StatusAccepted {
 			resp.Body.Close()
+			if bytes.Contains(line, []byte(`"notifications/initialized"`)) {
+				initialized.Store(true)
+			}
 			continue
 		}
 
@@ -130,9 +163,7 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 			return fmt.Errorf("proxy: read response: %w", err)
 		}
 
-		_, _ = writer.Write(bytes.TrimRight(body, "\r\n"))
-		_ = writer.WriteByte('\n')
-		_ = writer.Flush()
+		writeLine(body)
 	}
 
 	if sessionID != "" {
@@ -141,4 +172,53 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 		client.Do(req)
 	}
 	return scanner.Err()
+}
+
+// catalogPollInterval is how often a stdio proxy asks the daemon whether its
+// tool catalogue moved.
+var catalogPollInterval = 3 * time.Second
+
+// watchCatalog calls onChange each time the daemon's catalogue counter
+// (/health, "catalog") differs from the value last read, until ctx ends. The
+// first value read, one interval after the start, is the baseline; a daemon
+// that does not answer is simply asked again.
+func watchCatalog(ctx context.Context, base string, onChange func()) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	read := func() (uint64, bool) {
+		req, err := http.NewRequestWithContext(ctx, "GET", base+"/health", nil)
+		if err != nil {
+			return 0, false
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, false
+		}
+		defer resp.Body.Close()
+		var h struct {
+			Catalog *uint64 `json:"catalog"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&h) != nil || h.Catalog == nil {
+			return 0, false // a daemon older than the counter: nothing to watch
+		}
+		return *h.Catalog, true
+	}
+	var last uint64
+	known := false
+	ticker := time.NewTicker(catalogPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		cur, ok := read()
+		if !ok || ctx.Err() != nil {
+			continue
+		}
+		if known && cur != last {
+			onChange()
+		}
+		last, known = cur, true
+	}
 }

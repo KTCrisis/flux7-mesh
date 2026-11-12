@@ -45,6 +45,17 @@ func (m *Manager) SetRetrying(name, transport string, err error) {
 	m.retrying[name] = ServerStatus{Name: name, Transport: transport, Status: "retrying", Error: err.Error(), Tools: []string{}}
 }
 
+// Remove forgets an upstream and returns its client, nil when there was none.
+// The caller closes the client: Remove only stops calls from reaching it.
+func (m *Manager) Remove(name string) *MCPClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := m.clients[name]
+	delete(m.clients, name)
+	delete(m.retrying, name)
+	return c
+}
+
 func (m *Manager) Get(name string) *MCPClient {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
