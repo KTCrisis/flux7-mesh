@@ -81,23 +81,23 @@ approval.resolve {id, decision} → approve or deny
 
 ```bash
 # List pending
-mesh pending
+mesh7 pending
 
 # Approve (prefix match)
-mesh approve a1b2c3d4
+mesh7 approve a1b2c3d4
 
 # Approve, and stop being asked about this exact tool for an hour.
 # The grant records this approval as its origin — see "Chain of authority".
-mesh approve a1b2c3d4 --grant 1h
+mesh7 approve a1b2c3d4 --grant 1h
 
 # Same, widening the grant beyond the single tool (deliberate)
-mesh approve a1b2c3d4 --grant 1h --tools "filesystem.write_*"
+mesh7 approve a1b2c3d4 --grant 1h --tools "filesystem.write_*"
 
 # Deny
-mesh deny a1b2c3d4
+mesh7 deny a1b2c3d4
 
 # Watch (live updates) — [a]pprove, [g]rant, [d]eny, [s]kip
-mesh watch
+mesh7 watch
 ```
 
 In `watch`, `[g]` approves and opens a grant in one keystroke. Its duration comes
@@ -150,7 +150,7 @@ curl -X POST http://localhost:9090/grants -d '{
 }'
 ```
 
-`mesh approve <id> --grant <duration>` and `[g]` in `watch` fill both fields on
+`mesh7 approve <id> --grant <duration>` and `[g]` in `watch` fill both fields on
 their own; nobody copies an ID by hand. Every call the grant later waves through
 then carries `grant_id` and `parent_trace_id`, and the chain is walkable:
 

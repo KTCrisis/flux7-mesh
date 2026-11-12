@@ -42,11 +42,11 @@ the button twice does not stack two stops.
 ## From the CLI
 
 ```bash
-mesh halt --agent scout7 --reason "loops on search"
-mesh halt --session 7f3c...
-mesh halt --all --reason "incident"
-mesh halts                # the stops in force
-mesh resume 1563d782      # by ID or prefix
+mesh7 halt --agent scout7 --reason "loops on search"
+mesh7 halt --session 7f3c...
+mesh7 halt --all --reason "incident"
+mesh7 halts                # the stops in force
+mesh7 resume 1563d782      # by ID or prefix
 ```
 
 `MESH_URL` points at the daemon; `MESH_ADMIN_TOKEN` is sent when the control
@@ -60,7 +60,7 @@ force, a red banner shows on every page of the console.
 
 ## How it works inside
 
-**One request.** The console button, `mesh halt` and the API all end in `POST /halts` on the daemon, a control-plane route.
+**One request.** The console button, `mesh7 halt` and the API all end in `POST /halts` on the daemon, a control-plane route.
 
 **When the stop arrives**, mesh7, in this order:
 

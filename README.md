@@ -97,7 +97,7 @@ mesh7 discover --config config.yaml --generate-policy   # or start from a commen
 claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
-Restart Claude Code: the tools are there, the rules apply, every call is traced. When a call needs approval, the agent relays an id: run `mesh approve <id>` (or use the [console](https://github.com/KTCrisis/flux7-console)), and its retry of the same call goes through. For a long-running daemon, OpenAPI and CLI sources, and every YAML key, see [Getting started](https://docs.flux7.art/mesh7/getting-started/) and [Configuration](https://docs.flux7.art/mesh7/configuration/).
+Restart Claude Code: the tools are there, the rules apply, every call is traced. When a call needs approval, the agent relays an id: run `mesh7 approve <id>` (or use the [console](https://github.com/KTCrisis/flux7-console)), and its retry of the same call goes through. For a long-running daemon, OpenAPI and CLI sources, and every YAML key, see [Getting started](https://docs.flux7.art/mesh7/getting-started/) and [Configuration](https://docs.flux7.art/mesh7/configuration/).
 
 ## Documentation
 
