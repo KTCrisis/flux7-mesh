@@ -27,10 +27,15 @@ import (
 // The file that holds it can be written by anything that can write files,
 // agents included, so a declaration that appears or changes while the mesh
 // runs is not started. It is held until an operator accepts it, and the
-// declaration it would replace keeps running meanwhile. Only the declarations
-// read when the daemon starts are trusted as they are: starting the daemon is
-// an operator's act. A declaration that disappears is applied at once, since
-// removing a server can only restrict.
+// declaration it would replace keeps running meanwhile. A declaration that
+// disappears is applied at once, since removing a server can only restrict.
+//
+// A start is no more of a go-ahead than a file change: a service is started
+// again by a reboot or after a crash, with nobody watching. What was accepted
+// is therefore remembered on disk, by fingerprint, and a start launches only
+// the declarations that match; the others are held as they would be while
+// the mesh runs. The very first start has nothing to compare with and trusts
+// the file, once.
 //
 // When a server is replaced or removed its calls in flight fail with "client
 // closed". Catalogue pinning observes every (re)connection.
@@ -38,6 +43,9 @@ type upstreams struct {
 	mgr  *mcp.Manager
 	reg  *registry.Registry
 	pins *pin.Store // nil unless pin_tools
+	// accepted remembers the declarations an operator accepted; nil trusts
+	// every start (tests, and callers that vouch for their own list).
+	accepted *acceptedStore
 
 	// load reads the declared servers again, from the config file.
 	load func() ([]config.MCPServerConfig, error)
@@ -222,7 +230,57 @@ func (u *upstreams) stop(name string) {
 	}
 }
 
-// StartAll connects the servers declared at start, in parallel, and returns
+// StartDeclared is what a daemon start does with the declarations of the
+// config file. Those an operator accepted are started. On the first start
+// ever, all of them are, and recorded as accepted. Any other declaration is
+// held: it is new, or differs from the one accepted under its name, and the
+// start of a service is not an operator's go-ahead. It returns the held names.
+func (u *upstreams) StartDeclared(servers []config.MCPServerConfig) ([]string, error) {
+	if u.accepted == nil {
+		u.StartAll(servers)
+		return nil, nil
+	}
+	if u.accepted.firstUse() {
+		for _, sc := range servers {
+			if err := u.accepted.accept(sc, "first-start"); err != nil {
+				return nil, err
+			}
+		}
+		if err := u.accepted.markInitialized(); err != nil {
+			return nil, err
+		}
+		u.StartAll(servers)
+		return nil, nil
+	}
+
+	declared := map[string]bool{}
+	var trusted []config.MCPServerConfig
+	held := []string{}
+	u.mu.Lock()
+	for _, sc := range servers {
+		declared[sc.Name] = true
+		if u.accepted.accepted(sc) {
+			trusted = append(trusted, sc)
+			continue
+		}
+		u.held[sc.Name] = sc
+		held = append(held, sc.Name)
+	}
+	u.mu.Unlock()
+	// a name no longer declared loses its acceptance: declared again, it is new
+	for _, name := range u.accepted.names() {
+		if !declared[name] {
+			if err := u.accepted.forget(name); err != nil {
+				slog.Error("forget accepted upstream", "name", name, "error", err)
+			}
+		}
+	}
+	u.StartAll(trusted)
+	sort.Strings(held)
+	return held, nil
+}
+
+// StartAll connects servers the caller vouches for, in parallel, and returns
 // when each has either connected or been handed to its retry loop.
 func (u *upstreams) StartAll(servers []config.MCPServerConfig) {
 	var wg sync.WaitGroup
@@ -331,6 +389,11 @@ func (u *upstreams) Propose(servers []config.MCPServerConfig) (UpstreamDiff, err
 	d, want := u.diff(servers)
 	for _, name := range d.Removed {
 		u.stop(name)
+		if u.accepted != nil {
+			if err := u.accepted.forget(name); err != nil {
+				slog.Error("forget accepted upstream", "name", name, "error", err)
+			}
+		}
 	}
 
 	u.mu.Lock()
@@ -397,6 +460,13 @@ func (u *upstreams) Accept(name string) error {
 	u.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("no held declaration named %q", name)
+	}
+	// Remembered before it runs: an acceptance that could not be written is
+	// asked again at the next start, which is the safe side.
+	if u.accepted != nil {
+		if err := u.accepted.accept(sc, "operator"); err != nil {
+			slog.Error("record accepted upstream: it will be held again at the next start", "name", name, "error", err)
+		}
 	}
 	if running {
 		u.stop(name)

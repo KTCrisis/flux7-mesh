@@ -31,7 +31,7 @@ func Open(path string) (*sql.DB, error) {
 
 // schemaVersion is the migration level this build expects. Bump it with every
 // new `if version < N` block below.
-const schemaVersion = 4
+const schemaVersion = 5
 
 func migrate(db *sql.DB) error {
 	var version int
@@ -125,11 +125,32 @@ func migrate(db *sql.DB) error {
 				revoked_grants TEXT DEFAULT '[]'
 			)`,
 			`CREATE INDEX IF NOT EXISTS idx_halts_active ON halts(resumed_at)`,
-			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+			`PRAGMA user_version = 4`,
 		}
 		for _, s := range stmts {
 			if _, err := db.Exec(s); err != nil {
 				return fmt.Errorf("schema v4: %w", err)
+			}
+		}
+	}
+
+	// v5 records the upstream declarations an operator accepted, one per
+	// server name, by fingerprint: what the daemon may start by itself. The
+	// row with an empty name marks that the first start has happened, so an
+	// emptied table is never mistaken for a first use.
+	if version < 5 {
+		stmts := []string{
+			`CREATE TABLE IF NOT EXISTS upstream_accepted (
+				name TEXT PRIMARY KEY,
+				fingerprint TEXT NOT NULL,
+				accepted_at TEXT NOT NULL,
+				accepted_by TEXT DEFAULT ''
+			)`,
+			fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion),
+		}
+		for _, s := range stmts {
+			if _, err := db.Exec(s); err != nil {
+				return fmt.Errorf("schema v5: %w", err)
 			}
 		}
 	}

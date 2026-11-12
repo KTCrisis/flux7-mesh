@@ -312,9 +312,34 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 	}
 	m.handler.Upstreams = m.upstreams
 	m.closers = append(m.closers, m.upstreams.Close)
+	accepted, err := newAcceptedStore(stateDB)
+	if err != nil {
+		return nil, fmt.Errorf("accepted upstreams: %w", err)
+	}
+	m.upstreams.accepted = accepted
+	if !accepted.persistent() && len(cfg.MCPServers) > 0 {
+		slog.Warn("no storage_path: accepted upstream declarations are not remembered, every start trusts the config file as it is")
+	}
 	if len(cfg.MCPServers) > 0 {
-		m.upstreams.StartAll(cfg.MCPServers)
+		held, err := m.upstreams.StartDeclared(cfg.MCPServers)
+		if err != nil {
+			return nil, fmt.Errorf("mcp_servers: %w", err)
+		}
 		slog.Info("MCP upstream servers connected", "count", len(m.mcpManager.All()))
+		if len(held) > 0 {
+			slog.Warn("upstream declarations not accepted: held, nothing was started for them", "held", held,
+				"accept", "mesh7 upstream accept <name>")
+			m.traces.Record(trace.Entry{
+				TraceID:    trace.NewID(),
+				AgentID:    "config-file",
+				Tool:       "mesh.upstream_file_change",
+				Params:     map[string]any{"held": held, "at": "start"},
+				Policy:     "human_approval",
+				PolicyRule: "upstream-declaration",
+				StatusCode: 202,
+				Timestamp:  time.Now().UTC(),
+			})
+		}
 	}
 
 	// MCP Streamable HTTP handler

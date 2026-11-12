@@ -35,13 +35,21 @@ A config that does not load changes nothing: the running upstreams stay and the 
 
 A stdio declaration is a command line, and starting it runs a program as mesh7. The config file can be written by anything able to write files as the mesh's user, and an agent whose policy allows a file-writing tool is one of them. If a file change alone started the program, such an agent could make the mesh execute what it likes and step outside its governance.
 
-So the rule is the one pinning applies to tools: what is new or changed waits for a human. Three cases need no acceptance:
+So the rule is the one pinning applies to tools: what is new or changed waits for a human. Two cases need no acceptance:
 
-- the declarations read **when the daemon starts**: starting it is an operator's act;
 - a declaration that is **removed**: it can only restrict;
-- a held declaration that is withdrawn, or set back to what runs: it simply stops being held.
+- a held declaration that is withdrawn, or set back to the accepted one: it simply stops being held.
 
-Two limits are worth knowing. Without `auth.admin_token`, any local process can call the control plane, `accept` included: the hold stops an agent confined to mesh tools, not one that has a shell. And policy files are applied as soon as they change, so keep `config.yaml` and `policy_dir` out of the directories your agents can write to. See [Control-plane auth](https://docs.flux7.art/mesh7/control-plane-auth/).
+## A restart is not a go-ahead
+
+A service is started again by a reboot or after a crash, with nobody watching. So mesh7 remembers what you accepted, in its state database (`storage_path`), as one fingerprint per server name, and a start launches only the declarations that match. A declaration that is new, or differs from the accepted one, is held at start exactly as it would be while the mesh runs, and the log says so.
+
+- The **first start ever** has nothing to compare with: it trusts the file, once, and records it.
+- The fingerprint covers the transport, the command and its arguments, the URL, the names and values of `env`, and the names of the headers. Header values are left out, so a rotated token does not hold a server.
+- A declaration held at start has nothing running in its place: mesh7 keeps the fingerprint of what you accepted, not the declaration itself.
+- Without `storage_path` nothing is remembered and every start trusts the file as it is. mesh7 warns about it at start.
+
+Three limits are worth knowing. The state database is as writable as the config file: keep both out of reach. Without `auth.admin_token`, any local process can call the control plane, `accept` included: the hold stops an agent confined to mesh tools, not one that has a shell. And policy files are applied as soon as they change, so keep `config.yaml` and `policy_dir` out of the directories your agents can write to. See [Control-plane auth](https://docs.flux7.art/mesh7/control-plane-auth/).
 
 ## What a change costs
 
@@ -51,7 +59,7 @@ Two limits are worth knowing. Without `auth.admin_token`, any local process can 
 
 ## Pinning still decides what is callable
 
-With `pin_tools: true`, every connection is observed. A tool whose description or schema changed is held back (`pin:changed`) until you accept it; a call to it asks for approval. The tools of a server accepted for the first time are trusted on first use, as at a start.
+With `pin_tools: true`, every connection is observed. A tool whose description or schema changed is held back (`pin:changed`) until you accept it; a call to it asks for approval. The tools of a server accepted for the first time are trusted on first use.
 
 ```bash
 mesh7 pin list                    # tools held back: new, or changed since accepted
