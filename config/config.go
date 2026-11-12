@@ -384,6 +384,9 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validatePolicyNames(); err != nil {
 		return nil, err
 	}
+	if err := cfg.validatePolicyActions(); err != nil {
+		return nil, err
+	}
 	if err := cfg.validateCLITools(); err != nil {
 		return nil, err
 	}
@@ -452,6 +455,34 @@ func (c *Config) loadPolicyDir(configPath string) error {
 	return nil
 }
 
+// ValidAction reports whether a is one of the three actions a rule can take.
+func ValidAction(a string) bool {
+	switch a {
+	case "allow", "deny", "human_approval":
+		return true
+	}
+	return false
+}
+
+// validatePolicyActions refuses a rule whose action is not one the mesh knows.
+// A misspelt action is neither a deny nor an approval to the code that acts on
+// a decision, so without this check `action: human_aproval` would let the call
+// through. The file is refused instead, and the running policy set stays.
+func (c *Config) validatePolicyActions() error {
+	for _, p := range c.Policies {
+		where := fmt.Sprintf("policy %q", p.Name)
+		if p.SourceFile != "" {
+			where += " (" + p.SourceFile + ")"
+		}
+		for i, r := range p.Rules {
+			if !ValidAction(r.Action) {
+				return fmt.Errorf("%s rule %d: unknown action %q (expected allow, deny or human_approval)", where, i+1, r.Action)
+			}
+		}
+	}
+	return nil
+}
+
 // validatePolicyNames checks for duplicate policy names across all sources.
 func (c *Config) validatePolicyNames() error {
 	seen := make(map[string]bool, len(c.Policies))
@@ -480,6 +511,9 @@ func LoadPolicies(configPath string) ([]Policy, string, error) {
 		return nil, "", err
 	}
 	if err := cfg.validatePolicyNames(); err != nil {
+		return nil, "", err
+	}
+	if err := cfg.validatePolicyActions(); err != nil {
 		return nil, "", err
 	}
 	policyDir := cfg.PolicyDir

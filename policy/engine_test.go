@@ -317,3 +317,20 @@ func TestExplain(t *testing.T) {
 		}
 	}
 }
+
+// A misspelt action must never read as an allow: the code acting on a decision
+// only looks for deny and human_approval.
+func TestEvaluateUnknownActionFailsClosed(t *testing.T) {
+	e := NewEngine([]config.Policy{{
+		Name:  "typo",
+		Agent: "*",
+		Rules: []config.Rule{{Tools: []string{"*"}, Action: "human_aproval"}},
+	}})
+	d := e.Evaluate("anyone", "gmail.send", nil)
+	if d.Action != "deny" {
+		t.Fatalf("action = %q, want deny", d.Action)
+	}
+	if d.Rule != "typo" {
+		t.Errorf("rule = %q, want the policy that holds the typo", d.Rule)
+	}
+}

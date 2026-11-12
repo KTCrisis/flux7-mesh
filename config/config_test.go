@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -696,6 +697,36 @@ func TestPolicyCannotDeclareItsOwnSourceFile(t *testing.T) {
 	for _, p := range cfg.Policies {
 		if p.Name == "x" && p.SourceFile != "real.yaml" {
 			t.Errorf("source_file = %q, want real.yaml — YAML must not set it", p.SourceFile)
+		}
+	}
+}
+
+func TestLoadRejectsUnknownPolicyAction(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfg, []byte("policy_dir: policies\n"), 0o644)
+	os.Mkdir(filepath.Join(dir, "policies"), 0o755)
+	file := filepath.Join(dir, "policies", "claude.yaml")
+	write := func(action string) {
+		os.WriteFile(file, []byte("name: claude\nagent: claude\nrules:\n  - tools: [\"gmail.*\"]\n    action: allow\n  - tools: [\"*\"]\n    action: "+action+"\n"), 0o644)
+	}
+
+	write("human_approval")
+	if _, err := Load(cfg); err != nil {
+		t.Fatalf("valid actions refused: %v", err)
+	}
+	if _, _, err := LoadPolicies(cfg); err != nil {
+		t.Fatalf("valid actions refused by LoadPolicies: %v", err)
+	}
+
+	for _, action := range []string{"human_aproval", "approve", "Allow", `""`} {
+		write(action)
+		_, err := Load(cfg)
+		if err == nil || !strings.Contains(err.Error(), "unknown action") || !strings.Contains(err.Error(), "claude.yaml") || !strings.Contains(err.Error(), "rule 2") {
+			t.Errorf("Load with action %s: err = %v, want an unknown-action error naming claude.yaml rule 2", action, err)
+		}
+		if _, _, err := LoadPolicies(cfg); err == nil {
+			t.Errorf("LoadPolicies accepted action %s", action)
 		}
 	}
 }
