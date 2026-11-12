@@ -109,7 +109,7 @@ if [ ! -f "$CONFIG" ]; then
 # https://docs.flux7.art/mesh7/configuration/
 port: 9090
 approval:
-  channel: queue          # a service has no terminal: answer with 'mesh approve <id>'
+  channel: queue          # a service has no terminal: answer with 'mesh7 approve <id>'
 
 mcp_servers: []
 
@@ -175,4 +175,4 @@ fi
 say ""
 say "Claude Code then relays to it:"
 say "  claude mcp add mesh7 -- ${PREFIX}/mesh7 --mcp --config ${CONFIG}"
-say "Approvals: mesh approve <id>   Docs: https://docs.flux7.art/mesh7/deployment-modes/"
+say "Approvals: mesh7 approve <id>   Docs: https://docs.flux7.art/mesh7/deployment-modes/"

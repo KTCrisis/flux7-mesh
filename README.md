@@ -97,11 +97,11 @@ mesh7 discover --config config.yaml --generate-policy   # or start from a commen
 claude mcp add mesh7 -- mesh7 --mcp --config config.yaml
 ```
 
-Restart Claude Code: the tools are there, the rules apply, every call is traced. When a call needs approval, the agent relays an id: run `mesh approve <id>` (or use the [console](https://github.com/KTCrisis/flux7-console)), and its retry of the same call goes through. For a long-running daemon, OpenAPI and CLI sources, and every YAML key, see [Getting started](https://docs.flux7.art/mesh7/getting-started/) and [Configuration](https://docs.flux7.art/mesh7/configuration/).
+Restart Claude Code: the tools are there, the rules apply, every call is traced. When a call needs approval, the agent relays an id: run `mesh7 approve <id>` (or use the [console](https://github.com/KTCrisis/flux7-console)), and its retry of the same call goes through. For a long-running daemon, OpenAPI and CLI sources, and every YAML key, see [Getting started](https://docs.flux7.art/mesh7/getting-started/) and [Configuration](https://docs.flux7.art/mesh7/configuration/).
 
 ## Documentation
 
-- [Configuration](https://docs.flux7.art/mesh7/configuration/) · [Writing policies](https://docs.flux7.art/mesh7/writing-policies/) · [Tool classification](https://docs.flux7.art/mesh7/tool-classification/)
+- [Configuration](https://docs.flux7.art/mesh7/configuration/) · [Changing upstreams](https://docs.flux7.art/mesh7/upstreams/) · [Writing policies](https://docs.flux7.art/mesh7/writing-policies/) · [Tool classification](https://docs.flux7.art/mesh7/tool-classification/)
 - [Approval flow](https://docs.flux7.art/mesh7/approval-flow/) · [CLI tools](https://docs.flux7.art/mesh7/cli-tools/) · [Supervisor protocol](https://docs.flux7.art/mesh7/supervisor-protocol/)
 - [JWT authentication](https://docs.flux7.art/mesh7/jwt-auth/) · [Control-plane auth](https://docs.flux7.art/mesh7/control-plane-auth/) · [Agent security](https://docs.flux7.art/mesh7/security/)
 - [Trace integrity](https://docs.flux7.art/mesh7/trace-integrity/) · [Observability](https://docs.flux7.art/mesh7/otel/) · [Deployment modes](https://docs.flux7.art/mesh7/deployment-modes/)

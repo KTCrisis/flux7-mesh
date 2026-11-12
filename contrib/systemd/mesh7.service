@@ -8,7 +8,7 @@
 #
 # %h is your home directory. Adjust ExecStart if mesh7 or the config live
 # elsewhere. A service has no terminal: keep `approval.channel: queue` in the
-# config, and answer approvals with `mesh approve <id>` or the console.
+# config, and answer approvals with `mesh7 approve <id>` or the console.
 #
 # Where the user manager is unavailable (some WSL setups), use a system unit
 # instead: install.sh --system.

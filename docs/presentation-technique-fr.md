@@ -257,7 +257,7 @@ Claude appelle filesystem.write_file
 | Méthode | Cas d'usage |
 |---------|------------|
 | **Dans le chat** (approval.resolve) | Dev solo — l'utilisateur valide dans la conversation |
-| **CLI** (`mesh approve <id>`) | Depuis un autre terminal |
+| **CLI** (`mesh7 approve <id>`) | Depuis un autre terminal |
 | **HTTP API** (`POST /approvals/{id}/approve`) | Automatisation, CI/CD, supervisor agent |
 
 ### Timeout

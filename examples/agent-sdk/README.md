@@ -68,7 +68,7 @@ Agent: Let me write a summary...
 Agent: The write requires human approval. Please approve in your terminal.
 ```
 
-In terminal 2 (`mesh watch`), you'll see the approval request and can approve it.
+In terminal 2 (`mesh7 watch`), you'll see the approval request and can approve it.
 
 ## How it works
 
