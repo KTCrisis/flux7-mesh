@@ -1,4 +1,4 @@
-package main
+package opcli
 
 import (
 	"encoding/json"
@@ -72,7 +72,7 @@ func parseHaltFlags(args []string) (haltRequest, error) {
 func cmdHalt(args []string) {
 	req, err := parseHaltFlags(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\nusage: mesh halt --all | --agent <id> | --session <id> [--reason \"...\"]\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\nusage: %s halt --all | --agent <id> | --session <id> [--reason \"...\"]\n", err, prog)
 		os.Exit(1)
 	}
 	req.By = "cli:" + os.Getenv("USER")

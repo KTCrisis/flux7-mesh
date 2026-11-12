@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/KTCrisis/flux7-mesh/config"
+	"github.com/KTCrisis/flux7-mesh/internal/opcli"
 	"github.com/KTCrisis/flux7-mesh/mcp"
 	"github.com/KTCrisis/flux7-mesh/registry"
 )
@@ -29,6 +30,16 @@ func main() {
 			return
 		case "trace":
 			runTrace(os.Args[2:])
+			return
+		case "validate":
+			os.Exit(runValidate(os.Args[2:], os.Stdout, os.Stderr))
+		case "help", "-h", "--help":
+			printHelp(os.Stdout)
+			return
+		}
+		// operator commands, the ones the `mesh` binary also serves
+		if opcli.IsCommand(os.Args[1]) {
+			opcli.Main("mesh7", os.Args[1:])
 			return
 		}
 	}
