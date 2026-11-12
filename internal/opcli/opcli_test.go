@@ -1,4 +1,4 @@
-package main
+package opcli
 
 import (
 	"encoding/json"

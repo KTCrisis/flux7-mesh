@@ -1,0 +1,6 @@
+# One binary: the operator commands are subcommands of mesh7
+
+- **Problem**: two binaries with near-identical names, `mesh7` (the daemon, with three subcommands its `--help` did not show) and `mesh` (approvals and emergency stop). Catalogue pins and upstreams had no command at all, so some operations existed only in the console and others only in the YAML.
+- **Decision**: the operator commands move to `internal/opcli` and are served by both names: `mesh7 approve`, `mesh7 halt`, ... and `mesh approve`, `mesh halt` as before. New verbs fill the grid: `upstream list|reload|restart`, `pin list|accept`, and `mesh7 validate`, which loads config and policies as the daemon would and exits 1 with the reason. `mesh7 help` shows the whole binary on one page.
+- **Why**: every command is a client of the control-plane API the console already uses, so console and terminal can do the same things by construction. `mesh` stays as an alias because scripts and some sixty lines of documentation call it; removing it would be churn without benefit.
+- **Where**: `internal/opcli/` (`opcli.go`, `halt.go`, `upstream.go`), `cmd/mesh/main.go` (alias), `cmd/mesh7/main.go` (dispatch), `cmd/mesh7/validate.go`; tests `internal/opcli/upstream_test.go`, `cmd/mesh7/validate_test.go`.
