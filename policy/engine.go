@@ -93,6 +93,16 @@ func (e *Engine) Evaluate(agentID string, toolName string, params map[string]any
 				}
 			}
 
+			// The loader refuses unknown actions; a policy set handed over
+			// by other means still cannot widen access through one.
+			if !config.ValidAction(rule.Action) {
+				return Decision{
+					Action: "deny",
+					Rule:   pol.Name,
+					Reason: fmt.Sprintf("policy=%s tool=%s unknown action %q — fail closed", pol.Name, toolName, rule.Action),
+				}
+			}
+
 			return Decision{
 				Action: rule.Action,
 				Rule:   pol.Name,
