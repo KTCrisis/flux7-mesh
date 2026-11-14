@@ -172,3 +172,38 @@ func TestHaltValidationAndAdminGate(t *testing.T) {
 		t.Fatalf("remote caller without admin token: %d, want 401", w.Code)
 	}
 }
+
+// Under admin_scope "writes", the emergency stop stays reachable without the
+// token from the host (a stop typed in a hurry must not meet a 401), while
+// resuming still needs it, so a stopped agent cannot restart itself.
+func TestHaltStartsWithoutTokenButResumeNeedsIt(t *testing.T) {
+	h := setupHaltHandler(t)
+	h.AdminToken = "s3cret"
+	h.AdminWritesOnly = true
+
+	w := postJSON(h, "/halts", `{"scope":"all","reason":"panic"}`)
+	if w.Code == 401 {
+		t.Fatalf("loopback halt without token = 401: the emergency stop must not need the token")
+	}
+	var created struct {
+		Halt struct {
+			ID string `json:"id"`
+		} `json:"halt"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &created)
+	if created.Halt.ID == "" {
+		t.Fatalf("no halt created: %d %s", w.Code, w.Body.String())
+	}
+
+	if w := postJSON(h, "/halts/"+created.Halt.ID+"/resume", `{"by":"agent"}`); w.Code != 401 {
+		t.Errorf("resume without token = %d, want 401", w.Code)
+	}
+
+	req := newLoopbackReq("POST", "/halts", strings.NewReader(`{"scope":"all"}`))
+	req.RemoteAddr = "10.0.0.5:40000"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Errorf("remote halt without token = %d, want 401 (the exemption is for the host only)", rec.Code)
+	}
+}
