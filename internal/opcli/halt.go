@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -185,8 +186,31 @@ func adminDo(method, path, body string) (*http.Response, error) {
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if tok := os.Getenv("MESH_ADMIN_TOKEN"); tok != "" {
+	if tok := adminToken(); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	return http.DefaultClient.Do(req)
+}
+
+// adminToken is the control-plane token the operator commands send:
+// MESH_ADMIN_TOKEN, else the file named by MESH_ADMIN_TOKEN_FILE, else
+// ~/.config/mesh7/admin.token when it exists. Read from a file by default so
+// the token need not sit in a shell environment that agents inherit.
+func adminToken() string {
+	if tok := os.Getenv("MESH_ADMIN_TOKEN"); tok != "" {
+		return tok
+	}
+	path := os.Getenv("MESH_ADMIN_TOKEN_FILE")
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		path = filepath.Join(home, ".config", "mesh7", "admin.token")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
 }

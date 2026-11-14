@@ -1898,3 +1898,60 @@ func TestToolCallRefusalIsTraced(t *testing.T) {
 		t.Fatalf("refused tool call: traces %+v, want one auth:invalid_credential", entries)
 	}
 }
+
+// admin_scope: writes. A local agent can still read the control plane, but
+// it can no longer settle an approval, mint a grant or edit a policy without
+// the token: that is what the scope is for.
+func TestControlPlaneWritesOnlyScope(t *testing.T) {
+	handler, _ := setupHandler(t)
+	handler.Grants = grant.NewStore()
+	handler.AdminToken = "s3cret"
+	handler.AdminWritesOnly = true
+
+	do := func(method, path, body, token, from string) int {
+		var rd io.Reader
+		if body != "" {
+			rd = strings.NewReader(body)
+		}
+		req := newLoopbackReq(method, path, rd)
+		req.RemoteAddr = from
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if c := do("GET", "/traces", "", "", "127.0.0.1:5000"); c != 200 {
+		t.Errorf("loopback read without token = %d, want 200", c)
+	}
+	if c := do("GET", "/traces", "", "", "10.0.0.5:40000"); c != 401 {
+		t.Errorf("remote read without token = %d, want 401", c)
+	}
+	if c := do("POST", "/approvals/abc/approve", "", "", "127.0.0.1:5000"); c != 401 {
+		t.Errorf("loopback approve without token = %d, want 401: an agent must not settle its own approval", c)
+	}
+	if c := do("POST", "/grants", `{"agent":"worker","tools":"*","duration":"24h"}`, "", "127.0.0.1:5000"); c != 401 {
+		t.Errorf("loopback grant without token = %d, want 401", c)
+	}
+	if handler.Grants.Check("worker", "anything") != nil {
+		t.Error("no grant should exist after a rejected create")
+	}
+	if c := do("POST", "/approvals/abc/approve", "", "s3cret", "127.0.0.1:5000"); c == 401 {
+		t.Error("approve with the token was refused")
+	}
+}
+
+// The default scope keeps today's behaviour: with a token set, reads need it too.
+func TestControlPlaneAllScopeGuardsReads(t *testing.T) {
+	handler, _ := setupHandler(t)
+	handler.AdminToken = "s3cret"
+	req := newLoopbackReq("GET", "/traces", nil)
+	req.RemoteAddr = "127.0.0.1:5000"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Fatalf("loopback read without token, scope all = %d, want 401", w.Code)
+	}
+}

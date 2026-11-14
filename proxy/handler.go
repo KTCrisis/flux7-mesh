@@ -90,6 +90,7 @@ type Handler struct {
 	AllowLegacyAgent bool         // allow plaintext "agent:" identity even when JWT is configured
 	RequireAuth      bool         // reject anonymous data-plane callers with 401
 	AdminToken       string       // guards the control plane; empty = loopback-only
+	AdminWritesOnly  bool         // with AdminToken: only writes need it, loopback reads stay open
 	MCPHTTPHandler   http.Handler // MCP Streamable HTTP transport (POST/DELETE /mcp)
 
 	// Build info (populated from main.go ldflags-injected vars).
@@ -231,11 +232,21 @@ func (h *Handler) requireAuthOK(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (h *Handler) adminAuthorized(r *http.Request) bool {
+	if h.AdminToken != "" && h.AdminWritesOnly && isRead(r) {
+		return isLoopback(r.RemoteAddr)
+	}
 	if h.AdminToken != "" {
 		raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		return subtleConstEq(raw, h.AdminToken)
 	}
 	return isLoopback(r.RemoteAddr)
+}
+
+// isRead reports whether a control-plane request only reads: GET or HEAD.
+// Every route that changes something (approve, deny, policies, grants,
+// halts, pins, upstreams) is a POST, PUT or DELETE.
+func isRead(r *http.Request) bool {
+	return r.Method == http.MethodGet || r.Method == http.MethodHead
 }
 
 func isLoopback(remoteAddr string) bool {

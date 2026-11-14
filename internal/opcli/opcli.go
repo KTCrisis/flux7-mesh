@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -164,7 +163,7 @@ type approvalView struct {
 }
 
 func cmdPending() {
-	resp, err := http.Get(meshURL + "/approvals?status=pending")
+	resp, err := adminDo("GET", "/approvals?status=pending", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -193,7 +192,7 @@ func cmdPending() {
 }
 
 func cmdShow(id string) {
-	resp, err := http.Get(meshURL + "/approvals/" + id)
+	resp, err := adminDo("GET", "/approvals/"+id, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -298,7 +297,7 @@ func parseApproveFlags(flags []string) (duration, tools string, err error) {
 }
 
 func fetchApproval(id string) *approvalView {
-	resp, err := http.Get(meshURL + "/approvals/" + id)
+	resp, err := adminDo("GET", "/approvals/"+id, "")
 	if err != nil {
 		return nil
 	}
@@ -330,7 +329,7 @@ func createGrant(a *approvalView, tools, duration string, interactive bool) {
 		indent = "  "
 	}
 
-	resp, err := http.Post(meshURL+"/grants", "application/json", strings.NewReader(string(body)))
+	resp, err := adminDo("POST", "/grants", string(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%sapproved, but the grant failed: %v\n", indent, err)
 		return
@@ -439,7 +438,7 @@ func cmdWatch() {
 }
 
 func fetchPending() []approvalView {
-	resp, err := http.Get(meshURL + "/approvals?status=pending")
+	resp, err := adminDo("GET", "/approvals?status=pending", "")
 	if err != nil {
 		return nil
 	}
@@ -453,8 +452,7 @@ func fetchPending() []approvalView {
 // printed inline. In CLI mode, errors cause exit(1).
 func resolve(id string, action string, interactive bool) {
 	body := fmt.Sprintf(`{"resolved_by":"cli:%s"}`, os.Getenv("USER"))
-	resp, err := http.Post(meshURL+"/approvals/"+id+"/"+action,
-		"application/json", strings.NewReader(body))
+	resp, err := adminDo("POST", "/approvals/"+id+"/"+action, body)
 	if err != nil {
 		if interactive {
 			fmt.Fprintf(os.Stderr, "  error: %v\n", err)

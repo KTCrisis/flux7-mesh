@@ -60,6 +60,17 @@ type AuthConfig struct {
 	// restricted to loopback callers only. The data plane (tool calls,
 	// /decide, /mcp, /health) is never gated by this.
 	AdminToken string `yaml:"admin_token,omitempty"`
+	// AdminTokenFile reads the admin token from a file (first line, trimmed)
+	// instead of the YAML. The env override MESH_ADMIN_TOKEN and admin_token
+	// both take precedence over it.
+	AdminTokenFile string `yaml:"admin_token_file,omitempty"`
+	// AdminScope says what the admin token guards. "all" (the default): every
+	// control-plane endpoint. "writes": only the requests that change
+	// something (approve, deny, policies, grants, halts, pins, upstreams);
+	// reads (GET) stay open to loopback callers, so a local watcher can follow
+	// decisions without holding the token. The point of "writes" is that an
+	// agent on the same host can no longer settle its own approvals.
+	AdminScope string `yaml:"admin_scope,omitempty"`
 	// RequireAuthentication rejects data-plane requests with no credentials
 	// (agent resolves to "anonymous") with 401 instead of letting the policy
 	// engine fail closed. Off by default — tool calls are already governed by
