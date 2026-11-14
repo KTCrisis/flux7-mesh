@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -283,14 +284,17 @@ func initMesh(configPath string, portOverride int, specURL, backendURL string) (
 		}
 	}
 
-	// Control-plane auth. MESH_ADMIN_TOKEN env overrides config.
-	adminToken := cfg.Auth.AdminToken
-	if env := os.Getenv("MESH_ADMIN_TOKEN"); env != "" {
-		adminToken = env
+	// Control-plane auth.
+	adminToken, writesOnly, err := adminAuth(cfg.Auth)
+	if err != nil {
+		return nil, err
 	}
 	m.handler.AdminToken = adminToken
+	m.handler.AdminWritesOnly = writesOnly
 	m.handler.RequireAuth = cfg.Auth.RequireAuthentication
-	if adminToken != "" {
+	if adminToken != "" && m.handler.AdminWritesOnly {
+		slog.Info("control plane: admin token required to change anything; loopback reads stay open")
+	} else if adminToken != "" {
 		slog.Info("control plane: admin token required")
 	} else {
 		slog.Info("control plane: no admin token — restricted to loopback callers")
@@ -448,4 +452,32 @@ func (m *meshState) ServeHTTP() error {
 		return err
 	}
 	return nil
+}
+
+// adminAuth reads the control-plane token and its scope. MESH_ADMIN_TOKEN
+// overrides admin_token, which overrides admin_token_file (first line,
+// trimmed). The scope is "all" (default) or "writes".
+func adminAuth(a config.AuthConfig) (token string, writesOnly bool, err error) {
+	token = a.AdminToken
+	if token == "" && a.AdminTokenFile != "" {
+		b, err := os.ReadFile(a.AdminTokenFile)
+		if err != nil {
+			return "", false, fmt.Errorf("auth.admin_token_file: %w", err)
+		}
+		token = strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
+		if token == "" {
+			return "", false, fmt.Errorf("auth.admin_token_file %s is empty", a.AdminTokenFile)
+		}
+	}
+	if env := os.Getenv("MESH_ADMIN_TOKEN"); env != "" {
+		token = env
+	}
+	switch a.AdminScope {
+	case "", "all":
+	case "writes":
+		writesOnly = true
+	default:
+		return "", false, fmt.Errorf("auth.admin_scope %q: want all or writes", a.AdminScope)
+	}
+	return token, writesOnly, nil
 }
