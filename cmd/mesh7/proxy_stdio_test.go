@@ -245,3 +245,32 @@ func TestStdioProxyAnnouncesCatalogChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+
+// The bridge names its conversation to the daemon: MESH7_SESSION_LABEL first,
+// else the session id Claude Code gives its MCP servers.
+func TestStdioProxySendsClientSessionLabel(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("X-Session-Id"))
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": map[string]any{}})
+	}))
+	defer srv.Close()
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+
+	t.Setenv("MESH7_SESSION_LABEL", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "claude-session-1")
+	var out bytes.Buffer
+	if err := runStdioProxyWith(srv.URL, "claude", "", strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MESH7_SESSION_LABEL", "my-run")
+	if err := runStdioProxyWith(srv.URL, "claude", "", strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "claude-session-1" || got[1] != "my-run" {
+		t.Errorf("X-Session-Id sent = %v, want [claude-session-1 my-run]", got)
+	}
+}

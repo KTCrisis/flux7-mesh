@@ -81,6 +81,20 @@ func runStdioProxy(port int, agentID string) error {
 	return runStdioProxyWith(base, agentID, token, os.Stdin, os.Stdout)
 }
 
+// clientSessionLabel is the conversation this bridge serves, as the client
+// that spawned it names it: MESH7_SESSION_LABEL if set, else the session id
+// Claude Code puts in its MCP servers' environment. Sent as X-Session-Id, it
+// lands in each trace as client_session, so a reader can join mesh7's traces
+// to the client's own transcript. A /clear in Claude Code starts a new session
+// without restarting the bridge: the label then names the session it started
+// with.
+func clientSessionLabel() string {
+	if v := os.Getenv("MESH7_SESSION_LABEL"); v != "" {
+		return v
+	}
+	return os.Getenv("CLAUDE_CODE_SESSION_ID")
+}
+
 func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var sessionID string
@@ -92,6 +106,8 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 	if token != "" {
 		authHeader = "Bearer " + token
 	}
+
+	label := clientSessionLabel()
 
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4<<20), 4<<20)
@@ -138,6 +154,9 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 		req.Header.Set("Authorization", authHeader)
 		if sessionID != "" {
 			req.Header.Set("Mcp-Session-Id", sessionID)
+		}
+		if label != "" {
+			req.Header.Set("X-Session-Id", label)
 		}
 
 		resp, err := client.Do(req)
