@@ -48,8 +48,22 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	fmt.Fprintf(stdout, "ok: %s\n  %d upstream server(s), %d CLI tool(s), %d policy(ies) with %d rule(s)\n",
-		*configPath, len(cfg.MCPServers), len(cfg.CLITools), len(cfg.Policies), rules)
+	// The admin token is read at start: a missing or empty token file stops
+	// the daemon, and with it every tool a client gates on mesh7. Say so here,
+	// before a restart, not after.
+	token, writesOnly, err := adminAuth(cfg.Auth)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid: %v\n", err)
+		return 1
+	}
+	plane := "control plane: loopback only, no admin token"
+	if token != "" && writesOnly {
+		plane = "control plane: admin token for writes, loopback reads open"
+	} else if token != "" {
+		plane = "control plane: admin token for every call"
+	}
+	fmt.Fprintf(stdout, "ok: %s\n  %d upstream server(s), %d CLI tool(s), %d policy(ies) with %d rule(s)\n  %s\n",
+		*configPath, len(cfg.MCPServers), len(cfg.CLITools), len(cfg.Policies), rules, plane)
 	return 0
 }
 
