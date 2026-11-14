@@ -232,7 +232,7 @@ func (h *Handler) requireAuthOK(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (h *Handler) adminAuthorized(r *http.Request) bool {
-	if h.AdminToken != "" && h.AdminWritesOnly && isRead(r) {
+	if h.AdminToken != "" && h.AdminWritesOnly && (isRead(r) || isHaltStart(r)) {
 		return isLoopback(r.RemoteAddr)
 	}
 	if h.AdminToken != "" {
@@ -247,6 +247,16 @@ func (h *Handler) adminAuthorized(r *http.Request) bool {
 // halts, pins, upstreams) is a POST, PUT or DELETE.
 func isRead(r *http.Request) bool {
 	return r.Method == http.MethodGet || r.Method == http.MethodHead
+}
+
+// isHaltStart reports whether a request engages the emergency stop. Under
+// admin_scope "writes" it stays open to loopback callers like a read: stopping
+// is the safe direction, and a stop typed in a hurry must not meet a 401. The
+// worst a local agent can do with it is stop others, which shows and is undone
+// by a resume; resuming (POST /halts/{id}/resume) still needs the token, so a
+// stopped agent cannot restart itself.
+func isHaltStart(r *http.Request) bool {
+	return r.Method == http.MethodPost && r.URL.Path == "/halts"
 }
 
 func isLoopback(remoteAddr string) bool {
