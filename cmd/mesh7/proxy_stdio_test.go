@@ -246,7 +246,6 @@ func TestStdioProxyAnnouncesCatalogChanges(t *testing.T) {
 	}
 }
 
-
 // The bridge names its conversation to the daemon: MESH7_SESSION_LABEL first,
 // else the session id Claude Code gives its MCP servers.
 func TestStdioProxySendsClientSessionLabel(t *testing.T) {
@@ -272,5 +271,118 @@ func TestStdioProxySendsClientSessionLabel(t *testing.T) {
 	}
 	if len(got) != 2 || got[0] != "claude-session-1" || got[1] != "my-run" {
 		t.Errorf("X-Session-Id sent = %v, want [claude-session-1 my-run]", got)
+	}
+}
+
+// Once the session exists, a slow call no longer holds the others: the fast
+// one is answered while the slow one is still running.
+func TestStdioProxyCallsRunInParallel(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+			Params struct {
+				Name string `json:"name"`
+			} `json:"params"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Mcp-Session-Id", "sess-par")
+		if req.Method == "notifications/initialized" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if req.Params.Name == "slow" {
+			select {
+			case <-release:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"name": req.Params.Name}})
+	}))
+	defer srv.Close()
+
+	in, feed := io.Pipe()
+	out := &syncBuffer{}
+	done := make(chan error, 1)
+	go func() { done <- runStdioProxyWith(srv.URL, "claude", "", in, out) }()
+
+	fmt.Fprintln(feed, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`)
+	fmt.Fprintln(feed, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	fmt.Fprintln(feed, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"slow"}}`)
+	fmt.Fprintln(feed, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fast"}}`)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), `"id":3`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the fast call waited behind the slow one; out = %q", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if strings.Contains(out.String(), `"id":2`) {
+		t.Fatal("the slow call answered before it was released")
+	}
+	close(release)
+	feed.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// the bridge waits for the call still in flight before it returns
+	if !strings.Contains(out.String(), `"id":2`) {
+		t.Errorf("the slow call's answer was lost; out = %q", out.String())
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if !json.Valid([]byte(line)) {
+			t.Errorf("interleaved output line: %q", line)
+		}
+	}
+}
+
+// A daemon that goes away during a parallel call: the caller still gets an
+// answer for its id, and the bridge reports the failure.
+func TestStdioProxyAnswersAFailedParallelCall(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Method == "tools/call" {
+			// cut the connection without an answer
+			hj, _ := w.(http.Hijacker)
+			conn, _, _ := hj.Hijack()
+			conn.Close()
+			return
+		}
+		w.Header().Set("Mcp-Session-Id", "sess-gone")
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}})
+	}))
+	defer srv.Close()
+
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n" +
+		`{"jsonrpc":"2.0","id":"call-7","method":"tools/call","params":{"name":"x"}}` + "\n"
+	out := &syncBuffer{}
+	err := runStdioProxyWith(srv.URL, "claude", "", strings.NewReader(input), out)
+	if err == nil {
+		t.Error("a lost daemon should end the bridge with an error")
+	}
+	if !strings.Contains(out.String(), `"id":"call-7"`) || !strings.Contains(out.String(), `-32603`) {
+		t.Errorf("no JSON-RPC error for the failed call; out = %q", out.String())
+	}
+}
+
+func TestBridgeParallel(t *testing.T) {
+	t.Setenv("MESH7_BRIDGE_PARALLEL", "")
+	if bridgeParallel() != 8 {
+		t.Errorf("default = %d, want 8", bridgeParallel())
+	}
+	t.Setenv("MESH7_BRIDGE_PARALLEL", "2")
+	if bridgeParallel() != 2 {
+		t.Errorf("MESH7_BRIDGE_PARALLEL=2 gives %d", bridgeParallel())
+	}
+	t.Setenv("MESH7_BRIDGE_PARALLEL", "zero")
+	if bridgeParallel() != 8 {
+		t.Errorf("a bad value should fall back to 8, got %d", bridgeParallel())
 	}
 }

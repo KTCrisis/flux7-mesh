@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -140,20 +141,29 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 	// nothing is written to out once this function has returned
 	defer func() { stopWatch(); <-watchDone }()
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	// The session the daemon mints at initialize; every later request carries it.
+	var smu sync.Mutex
+	sid := func() string { smu.Lock(); defer smu.Unlock(); return sessionID }
 
+	// One request in flight at a time made a session and all its sub-agents
+	// wait behind its slowest call (a 35 s local model held a 1.4 s search for
+	// 35 s, 14/11/2026). Once the session exists, each request goes on its own,
+	// up to bridgeParallel() at once; answers come back in any order, matched
+	// by their JSON-RPC id, and writeLine keeps each line whole.
+	sem := make(chan struct{}, bridgeParallel())
+	var wg sync.WaitGroup
+	var fmu sync.Mutex
+	var fatal error
+
+	forward := func(line []byte) error {
 		req, err := http.NewRequest("POST", base+"/mcp", bytes.NewReader(line))
 		if err != nil {
 			return fmt.Errorf("proxy: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", authHeader)
-		if sessionID != "" {
-			req.Header.Set("Mcp-Session-Id", sessionID)
+		if s := sid(); s != "" {
+			req.Header.Set("Mcp-Session-Id", s)
 		}
 		if label != "" {
 			req.Header.Set("X-Session-Id", label)
@@ -164,8 +174,10 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 			return fmt.Errorf("proxy: daemon unreachable: %w", err)
 		}
 
-		if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
-			sessionID = sid
+		if s := resp.Header.Get("Mcp-Session-Id"); s != "" {
+			smu.Lock()
+			sessionID = s
+			smu.Unlock()
 		}
 
 		if resp.StatusCode == http.StatusAccepted {
@@ -173,7 +185,7 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 			if bytes.Contains(line, []byte(`"notifications/initialized"`)) {
 				initialized.Store(true)
 			}
-			continue
+			return nil
 		}
 
 		body, err := io.ReadAll(resp.Body)
@@ -183,14 +195,95 @@ func runStdioProxyWith(base, agentID, token string, in io.Reader, out io.Writer)
 		}
 
 		writeLine(body)
+		return nil
 	}
 
-	if sessionID != "" {
+	for scanner.Scan() {
+		fmu.Lock()
+		stop := fatal
+		fmu.Unlock()
+		if stop != nil {
+			break
+		}
+		// the scanner reuses its buffer: a request handed to a goroutine needs its own copy
+		line := append([]byte(nil), scanner.Bytes()...)
+		if len(line) == 0 {
+			continue
+		}
+
+		id, isRequest := requestID(line)
+		// Until the session exists, one at a time: initialize mints the session
+		// the others will carry. Notifications and the client's own answers
+		// stay in line too; the daemon acknowledges them at once.
+		if sid() == "" || !isRequest {
+			if err := forward(line); err != nil {
+				wg.Wait()
+				return err
+			}
+			continue
+		}
+
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := forward(line); err != nil {
+				// the caller gets an answer rather than a call that never ends;
+				// the bridge then stops, as it did when the daemon went away
+				writeLine(rpcErrorLine(id, err))
+				fmu.Lock()
+				if fatal == nil {
+					fatal = err
+				}
+				fmu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if s := sid(); s != "" {
 		req, _ := http.NewRequest("DELETE", base+"/mcp", nil)
-		req.Header.Set("Mcp-Session-Id", sessionID)
+		req.Header.Set("Mcp-Session-Id", s)
 		client.Do(req)
 	}
+	if fatal != nil {
+		return fatal
+	}
 	return scanner.Err()
+}
+
+// bridgeParallel is how many requests one bridge keeps in flight to the
+// daemon: MESH7_BRIDGE_PARALLEL when it is a positive number, else 8.
+func bridgeParallel() int {
+	if n, err := strconv.Atoi(os.Getenv("MESH7_BRIDGE_PARALLEL")); err == nil && n > 0 {
+		return n
+	}
+	return 8
+}
+
+// requestID returns the id of a JSON-RPC request, and whether the line is one
+// (a method and a non-null id: not a notification, not an answer).
+func requestID(line []byte) (json.RawMessage, bool) {
+	var m struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if json.Unmarshal(line, &m) != nil || m.Method == "" || len(m.ID) == 0 || string(m.ID) == "null" {
+		return nil, false
+	}
+	return m.ID, true
+}
+
+// rpcErrorLine is the JSON-RPC error that answers request id when the bridge
+// could not reach the daemon for it.
+func rpcErrorLine(id json.RawMessage, err error) []byte {
+	b, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error":   map[string]any{"code": -32603, "message": "mesh7 bridge: " + err.Error()},
+	})
+	return b
 }
 
 // catalogPollInterval is how often a stdio proxy asks the daemon whether its
