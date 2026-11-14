@@ -144,7 +144,8 @@ approve flags:
 
 env:
   MESH_URL             Agent-mesh URL (default http://localhost:9090)
-  MESH_ADMIN_TOKEN     Control-plane token, sent by halt / halts / resume
+  MESH_ADMIN_TOKEN       Control-plane token, sent by every operator command
+  MESH_ADMIN_TOKEN_FILE  File to read it from instead; never looked up by default
                        (required when mesh7 is not on the loopback)
   MESH_GRANT_DURATION  Duration used by [g] in watch (default 1h)`)
 }
