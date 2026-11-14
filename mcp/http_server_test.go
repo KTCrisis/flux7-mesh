@@ -496,3 +496,49 @@ func TestHTTPToolsCallOwnTraceWithoutCaller(t *testing.T) {
 		t.Fatalf("expected one entry with its own trace and no parent, got %+v", got)
 	}
 }
+
+// A legacy session opened with X-Session-Id keeps its minted, unguessable
+// session ID (it routes requests and receives session halts) and carries the
+// client's label beside it, in each trace's client_session.
+func TestHTTPLegacySessionKeepsClientLabelBeside(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer backend.Close()
+
+	reg := registry.New()
+	reg.LoadManual(&registry.Tool{Name: "read", Source: "openapi", Method: "GET", Path: "/r", BaseURL: backend.URL})
+	pol := policy.NewEngine([]config.Policy{{Name: "p", Agent: "*", Rules: []config.Rule{
+		{Tools: []string{"*"}, Action: "allow"}}}})
+	traces := trace.NewStore(50)
+	h := NewHTTPHandler(reg, pol, traces, approval.NewStore(30), proxy.NewHandler(reg, pol, traces), nil, false, nil, "queue")
+
+	post := func(session string, req rpcRequest) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(req)
+		r := httptest.NewRequest("POST", "/mcp", bytes.NewReader(body))
+		r.Header.Set("Authorization", "Bearer agent:claude")
+		r.Header.Set("X-Session-Id", "bb6fc42e-1444-49b1-93d7-92b20661e6bf")
+		if session != "" {
+			r.Header.Set("Mcp-Session-Id", session)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	w := post("", rpcRequest{JSONRPC: "2.0", ID: float64(1), Method: "initialize"})
+	minted := w.Header().Get("Mcp-Session-Id")
+	if minted == "" || minted == "bb6fc42e-1444-49b1-93d7-92b20661e6bf" {
+		t.Fatalf("session id = %q, want a minted one, never the client's label", minted)
+	}
+	post(minted, rpcRequest{JSONRPC: "2.0", ID: float64(2), Method: "tools/call",
+		Params: map[string]any{"name": "read", "arguments": map[string]any{}}})
+
+	got := traces.QueryBySession(minted, 10)
+	if len(got) != 1 {
+		t.Fatalf("traces for the minted session = %d, want 1", len(got))
+	}
+	if got[0].ClientSession != "bb6fc42e-1444-49b1-93d7-92b20661e6bf" {
+		t.Errorf("client_session = %q, want the client's label", got[0].ClientSession)
+	}
+}

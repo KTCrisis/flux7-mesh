@@ -135,6 +135,7 @@ type Server struct {
 	HideDenied       bool          // drop from tools/list what the policy can only deny
 	UserID           string        // human the agent acts for, when the credential carried one
 	SessionID        string        // optional session ID (set externally or auto-generated at initialize)
+	ClientSession    string        // the client's own label for the conversation (X-Session-Id), declared, not proven
 	SupervisorMode   bool          // when true, hide approval.* virtual tools from agents
 	SupervisorAgents []string      // agent ID globs allowed to see approval tools in supervisor mode
 	ApprovalChannel  string        // queue | tty | tty-fallback (empty = tty-fallback, see config.ApprovalConfig)
@@ -565,17 +566,18 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 
 	if decision.Action == "deny" {
 		s.Traces.Record(trace.Entry{
-			TraceID:      tc.TraceID,
-			SpanID:       tc.SpanID,
-			ParentSpanID: tc.ParentSpanID,
-			SessionID:    s.SessionID,
-			AgentID:      s.AgentID,
-			UserID:       s.UserID,
-			Tool:         toolName,
-			Params:       arguments,
-			Policy:       "deny",
-			PolicyRule:   decision.Rule,
-			LatencyMs:    time.Since(start).Milliseconds(),
+			TraceID:       tc.TraceID,
+			SpanID:        tc.SpanID,
+			ParentSpanID:  tc.ParentSpanID,
+			SessionID:     s.SessionID,
+			ClientSession: s.ClientSession,
+			AgentID:       s.AgentID,
+			UserID:        s.UserID,
+			Tool:          toolName,
+			Params:        arguments,
+			Policy:        "deny",
+			PolicyRule:    decision.Rule,
+			LatencyMs:     time.Since(start).Milliseconds(),
 		})
 		return map[string]any{
 			"content": []map[string]any{
@@ -600,16 +602,17 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 
 	if decision.Action == "human_approval" {
 		entry := trace.Entry{
-			TraceID:      tc.TraceID,
-			SpanID:       tc.SpanID,
-			ParentSpanID: tc.ParentSpanID,
-			SessionID:    s.SessionID,
-			AgentID:      s.AgentID,
-			UserID:       s.UserID,
-			Tool:         toolName,
-			Params:       arguments,
-			Policy:       "human_approval",
-			PolicyRule:   decision.Rule,
+			TraceID:       tc.TraceID,
+			SpanID:        tc.SpanID,
+			ParentSpanID:  tc.ParentSpanID,
+			SessionID:     s.SessionID,
+			ClientSession: s.ClientSession,
+			AgentID:       s.AgentID,
+			UserID:        s.UserID,
+			Tool:          toolName,
+			Params:        arguments,
+			Policy:        "human_approval",
+			PolicyRule:    decision.Rule,
 		}
 
 		// Route per approval.channel: queue skips the TTY prompt entirely,
@@ -792,6 +795,7 @@ func (s *Server) handleToolsCall(params map[string]any, tc trace.Context) (any, 
 		SpanID:                tc.SpanID,
 		ParentSpanID:          tc.ParentSpanID,
 		SessionID:             s.SessionID,
+		ClientSession:         s.ClientSession,
 		AgentID:               s.AgentID,
 		UserID:                s.UserID,
 		Tool:                  toolName,

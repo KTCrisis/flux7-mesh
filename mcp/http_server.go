@@ -109,6 +109,7 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		srv := h.newServer(ident, sessionLabel(r.Header))
+		srv.ClientSession = srv.SessionID
 		resp := srv.HandleRequestWith(req, requestTraceContext(r, req))
 		if resp.JSONRPC == "" {
 			w.WriteHeader(http.StatusAccepted)
@@ -158,7 +159,7 @@ func (h *HTTPHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	srv := h.getOrCreateSession(sessionID, ident)
+	srv := h.getOrCreateSession(sessionID, ident, sessionLabel(r.Header))
 	resp := srv.HandleRequestWith(req, requestTraceContext(r, req))
 
 	// Notifications — no response body.
@@ -214,7 +215,7 @@ func (h *HTTPHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity) *Server {
+func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity, label string) *Server {
 	agentID := ident.AgentID
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -228,6 +229,9 @@ func (h *HTTPHandler) getOrCreateSession(sessionID string, ident auth.Identity) 
 	// New sessions always get a server-minted, unguessable ID — a
 	// client-supplied ID is never adopted (callers pass "" on initialize).
 	srv := h.newServer(ident, trace.NewID())
+	// the client's label is kept beside the minted ID, never in its place:
+	// set once, at creation, so no request races a later write
+	srv.ClientSession = label
 	h.sessions[srv.SessionID] = srv
 
 	slog.Info("MCP HTTP session created", "session_id", srv.SessionID, "agent", agentID)

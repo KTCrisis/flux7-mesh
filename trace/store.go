@@ -25,7 +25,13 @@ type SessionSummary struct {
 type Entry struct {
 	TraceID   string `json:"trace_id"`
 	SessionID string `json:"session_id,omitempty"`
-	AgentID   string `json:"agent_id"`
+	// ClientSession is the conversation the client says the call belongs to
+	// (X-Session-Id on a legacy MCP session, e.g. Claude Code's session id
+	// relayed by the stdio bridge). Declared, not proven: it groups calls for
+	// a reader, while SessionID, minted by mesh7, stays the one that routes
+	// requests and receives session halts.
+	ClientSession string `json:"client_session,omitempty"`
+	AgentID       string `json:"agent_id"`
 	// UserID is the human the agent acted for, when the credential carried
 	// one (auth.jwt.user_claim). It is the half of the delegation that an
 	// identity provider issues and then forgets; recording it here is what
