@@ -46,3 +46,26 @@ func TestValidate(t *testing.T) {
 		t.Errorf("a missing file: exit %d", code)
 	}
 }
+
+// A missing token file would stop the daemon and, with it, every tool a client
+// gates on mesh7: validate says so before the restart.
+func TestValidateChecksTheAdminTokenFile(t *testing.T) {
+	t.Setenv("MESH_ADMIN_TOKEN", "")
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	tok := filepath.Join(dir, "admin.token")
+	write := func() {
+		os.WriteFile(cfg, []byte("auth:\n  admin_token_file: "+tok+"\n  admin_scope: writes\n"), 0o644)
+	}
+	write()
+
+	var out, errw bytes.Buffer
+	if code := runValidate([]string{"--config", cfg}, &out, &errw); code != 1 || !strings.Contains(errw.String(), "admin_token_file") {
+		t.Fatalf("missing token file: exit %d, stderr %q", code, errw.String())
+	}
+	os.WriteFile(tok, []byte("t0ken\n"), 0o600)
+	out.Reset()
+	if code := runValidate([]string{"--config", cfg}, &out, &errw); code != 0 || !strings.Contains(out.String(), "admin token for writes") {
+		t.Fatalf("token present: exit %d, out %q", code, out.String())
+	}
+}
