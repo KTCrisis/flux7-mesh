@@ -18,8 +18,10 @@ func TestAdminTokenSources(t *testing.T) {
 	dir := filepath.Join(home, ".config", "mesh7")
 	os.MkdirAll(dir, 0o700)
 	os.WriteFile(filepath.Join(dir, "admin.token"), []byte("from-default-file\n"), 0o600)
-	if got := adminToken(); got != "from-default-file" {
-		t.Errorf("default file: %q", got)
+	// a file at the usual place is not read on its own: the CLI must not fetch
+	// the token for an agent that runs it
+	if got := adminToken(); got != "" {
+		t.Errorf("a file found by default was read: %q", got)
 	}
 
 	other := filepath.Join(home, "other.token")

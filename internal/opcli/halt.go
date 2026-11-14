@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -193,20 +192,18 @@ func adminDo(method, path, body string) (*http.Response, error) {
 }
 
 // adminToken is the control-plane token the operator commands send:
-// MESH_ADMIN_TOKEN, else the file named by MESH_ADMIN_TOKEN_FILE, else
-// ~/.config/mesh7/admin.token when it exists. Read from a file by default so
-// the token need not sit in a shell environment that agents inherit.
+// MESH_ADMIN_TOKEN, else the file named by MESH_ADMIN_TOKEN_FILE. Never a file
+// found on its own: an agent with a shell runs as the same user, and a CLI
+// that fetched the token for it would let `mesh7 approve` settle the agent's
+// own held call. Naming the file is a step a hook can refuse; finding it by
+// default is not.
 func adminToken() string {
 	if tok := os.Getenv("MESH_ADMIN_TOKEN"); tok != "" {
 		return tok
 	}
 	path := os.Getenv("MESH_ADMIN_TOKEN_FILE")
 	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		path = filepath.Join(home, ".config", "mesh7", "admin.token")
+		return ""
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
