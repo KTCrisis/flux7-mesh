@@ -1,0 +1,6 @@
+# Traces carry the client's own name for the conversation, beside mesh7's session
+
+- **Problem**: an MCP trace carried the session id mesh7 mints at initialize, which nothing ties to the client's conversation. A reader (deck7) had to join traces to a Claude Code transcript by tool name and time window.
+- **Decision**: the `--mcp` shuttle sends `X-Session-Id` from `MESH7_SESSION_LABEL`, else `CLAUDE_CODE_SESSION_ID` (Claude Code puts it in its MCP servers' environment). The daemon keeps it beside the minted session id, set once at creation, and writes it in each trace as `client_session`. The minted `session_id` still routes requests and receives session halts; a client-supplied id is never adopted in its place.
+- **Why**: an exact join for readers without weakening routing or halts. The label is declared, not proven, like `X-Session-Id` already was. Checked on 2026-11-14: after a `/clear` the shuttle keeps the id it started with, so readers must use the label only when it names exactly the session they read, and fall back otherwise (deck7 does).
+- **Where**: `trace.Entry.ClientSession` in `trace/store.go`, `Server.ClientSession` in `mcp/server.go`, `getOrCreateSession` in `mcp/http_server.go`, `clientSessionLabel` in `cmd/mesh7/proxy_stdio.go`; tests in `mcp/http_server_test.go` and `cmd/mesh7/proxy_stdio_test.go`.
