@@ -1,7 +1,8 @@
 ```
-┌┬┐┌─┐┌─┐┬ ┬┌─┐
-│││├┤ └─┐├─┤  │   agents ──▶ mesh7 ──▶ tools
-┴ ┴└─┘└─┘┴ ┴  ┴   policy · approval · trace
+             ┌───────────┐
+ agents ───▶ │   mesh7   │ ───▶ tools
+             └───────────┘
+        policy · approval · trace
 ```
 
 # flux7-mesh
