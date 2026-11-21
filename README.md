@@ -2,7 +2,7 @@
               ┌───────────┐
   agents ───> │   mesh7   │ ───> tools
               └───────────┘
-          policy · approval · trace
+        policy · approval · trace
 ```
 
 # flux7-mesh
