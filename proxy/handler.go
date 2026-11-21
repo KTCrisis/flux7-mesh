@@ -568,16 +568,10 @@ func (h *Handler) handleToolCall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
-// handleDecide evaluates policy without executing the tool.
-// Returns the decision (allow/deny/human_approval) and traces it.
-// dispatchFloor resolves a tool name the same way the call path does — exact
-// match first, then the CLI catch-all — and returns its floor action. An
-// undeclared subcommand such as terraform.destroy resolves to the dispatcher,
-// so /decide answers exactly what the call path would enforce.
-func (h *Handler) dispatchFloor(toolName string) string {
-	return h.Floor(h.resolveTool(toolName))
-}
-
+// resolveTool finds a tool the same way on the call path and on /decide: exact
+// match first, then the CLI catch-all. An undeclared subcommand such as
+// terraform.destroy resolves to the dispatcher, so /decide answers exactly
+// what the call path would enforce.
 func (h *Handler) resolveTool(toolName string) *registry.Tool {
 	if tool := h.Registry.Get(toolName); tool != nil {
 		return tool
@@ -619,6 +613,8 @@ func (h *Handler) Floor(tool *registry.Tool) string {
 	return policy.Tighten(policy.Decision{Action: floor}, pf).Action
 }
 
+// handleDecide evaluates policy without executing the tool.
+// Returns the decision (allow/deny/human_approval) and traces it.
 func (h *Handler) handleDecide(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Agent     string         `json:"agent"`
