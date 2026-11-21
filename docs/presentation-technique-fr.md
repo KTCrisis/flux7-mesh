@@ -495,7 +495,7 @@ cd flux7-mesh
 go build -o mesh7 ./cmd/mesh7
 ```
 
-Requiert Go 1.25+. Deux dépendances : `gopkg.in/yaml.v3` + `modernc.org/sqlite` (pure Go, zero CGO).
+Requiert Go 1.26+. Deux dépendances : `gopkg.in/yaml.v3` + `modernc.org/sqlite` (pure Go, zero CGO).
 
 ## Démarrage rapide
 
@@ -525,7 +525,7 @@ L'agent voit les outils. flux7-mesh applique les règles. Chaque appel est trac�
 
 | Caractéristique | Détail |
 |----------------|--------|
-| **Langage** | Go 1.25 |
+| **Langage** | Go 1.26 |
 | **Dépendances** | `gopkg.in/yaml.v3` + `modernc.org/sqlite` (pure Go, zero CGO) |
 | **Taille du binaire** | ~9 Mo (compilation statique) |
 | **Protocole agent** | MCP stdio (JSON-RPC 2.0) + MCP Streamable HTTP (`POST /mcp`) + HTTP REST |
