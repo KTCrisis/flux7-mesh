@@ -23,8 +23,8 @@ type Origin struct {
 // Grant is a temporary permission override.
 type Grant struct {
 	ID        string    `json:"id"`
-	Agent     string    `json:"agent"`      // agent pattern (* = any)
-	Tools     string    `json:"tools"`      // tool glob pattern
+	Agent     string    `json:"agent"` // agent pattern (* = any)
+	Tools     string    `json:"tools"` // tool glob pattern
 	ExpiresAt time.Time `json:"expires_at"`
 	GrantedBy string    `json:"granted_by"`
 	CreatedAt time.Time `json:"created_at"`
