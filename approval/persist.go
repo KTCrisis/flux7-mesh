@@ -96,11 +96,11 @@ func (s *Store) expireLoaded(pa *PendingApproval) {
 
 func scanApproval(rows *sql.Rows) (*PendingApproval, error) {
 	var (
-		pa                             PendingApproval
-		params, status                 string
-		createdAt, resolvedBy          string
-		resolvedAt, reasoning          string
-		confidence                     float64
+		pa                    PendingApproval
+		params, status        string
+		createdAt, resolvedBy string
+		resolvedAt, reasoning string
+		confidence            float64
 	)
 	err := rows.Scan(
 		&pa.ID, &pa.AgentID, &pa.Tool, &params, &pa.PolicyRule,

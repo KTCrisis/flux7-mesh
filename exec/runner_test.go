@@ -121,7 +121,7 @@ func TestRunner_Timeout(t *testing.T) {
 func TestRunner_OutputCap(t *testing.T) {
 	runner := &Runner{MaxOutputBytes: 100}
 	meta := &registry.CLIToolMeta{
-		Bin: "yes", // infinite output
+		Bin:     "yes", // infinite output
 		Timeout: 500 * time.Millisecond,
 	}
 

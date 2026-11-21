@@ -1,7 +1,8 @@
 ```
-┌┬┐┌─┐┌─┐┬ ┬┌─┐
-│││├┤ └─┐├─┤  │   agents ──▶ mesh7 ──▶ tools
-┴ ┴└─┘└─┘┴ ┴  ┴   policy · approval · trace
+             ┌───────────┐
+ agents ───▶ │   mesh7   │ ───▶ tools
+             └───────────┘
+        policy · approval · trace
 ```
 
 # flux7-mesh
@@ -16,6 +17,16 @@
 One Go binary, one YAML file, fail closed. Works with Claude Code, Cursor, Anthropic Managed Agents, the Agent SDK, LangChain, or anything that calls tools over MCP, HTTP or a CLI.
 
 Full documentation: **[docs.flux7.art/mesh7](https://docs.flux7.art/mesh7/)**
+
+## The problem
+
+Agents call tools: file writes, emails, API calls, database queries. Three questions need an answer before production, and no agent framework gives one.
+
+- **Which agent can call which tool?** Frameworks do not enforce boundaries. An agent can call anything it discovers.
+- **Who approved that action, and why?** Someone clicked "yes" in a terminal three weeks ago. That decision is gone, and so is its reason.
+- **What actually happened?** Stdout logs, somewhere. Not structured, not queryable, not an audit trail.
+
+mesh7 answers them at the tool call, outside the agent and outside the model: a rule decides, a human is asked when the rule says so, and every decision is written down in a log that cannot be edited quietly.
 
 ## What it does
 

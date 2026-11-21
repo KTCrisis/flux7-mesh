@@ -10,11 +10,16 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
+      - name: Format
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "not gofmt-ed:"; echo "$out"; exit 1; fi
 
       - name: Vet
         run: go vet ./...
@@ -22,12 +27,22 @@ jobs:
       - name: Test
         run: go test ./... -race -count=1
 
+      # Functions nothing reaches, the tests counted as entry points (same as `make deadcode`).
+      - name: Dead code
+        run: |
+          out=$(go run golang.org/x/tools/cmd/deadcode@v0.53.0 -test ./...)
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+
+      # Fails only when the code calls a vulnerable symbol, not on every advisory in a dependency.
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+
   python-sdk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
